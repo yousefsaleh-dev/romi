@@ -30,7 +30,7 @@ Run from the repository root:
 
 `test -Mode audio-bench` uploads the audio bench and opens logs; plain `test` does the core bench. `-InsecureTls` is explicit and allowed only for `full`/`demo`: it bypasses the ROMI host certificate only. Gemini always uses trusted Google roots. Normal profiles validate HTTPS and wait for NTP. No Gemini API key, Supabase secret or admin credentials belong on the ESP32.
 
-`romi_secrets.h` contains device settings. The owner explicitly requested tracking secrets and made the repository public; the Google-key push exception was approved. The launcher never prints credentials. Generated mode flags in `romi_local.h` remain ignored. Pins, angles, gains, rates and timings are centralized in `include/romi_config.h`.
+`romi_secrets.h` contains the preloaded device settings requested by the owner. Gemini/Supabase server env files are ignored and belong locally/on Vercel. The launcher never prints credentials. Generated mode flags in `romi_local.h` remain ignored. Pins, angles, gains, rates and timings are centralized in `include/romi_config.h`.
 
 ## Build targets and modules
 

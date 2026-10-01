@@ -91,3 +91,7 @@ node scripts/door-expiry-regression.mjs
 أعيد `pnpm smoke:esp32:deployed` باستخدام المفتاح المحدث، على `https://romi-deci.vercel.app`: **PASS، exit 0، سبع مجموعات كاملة**. هذه المرة الجلسات صدرت من `/api/ai/session` الحقيقي، وليست seeded fixtures. نجح one-use ephemeral token، raw v1beta WebSocket/setupComplete، PCM16k input، و**16 PCM24k audio chunks، أكبر frame 46,392 bytes**، وusage/duplicate usage، وكل حراس الحجز والباب وexpiry/ACK/retry/consumed code. نُظفت بيانات التشغيل التجريبية. نتائج الفشل أعلاه سجل تاريخي للمشاكل التي أصلحت، وليست الحالة الحالية.
 
 إعدادات ESP32 مرفوعة في `include/romi_secrets.h`: رابط الموقع، device token المطابق للاختبار، وشهادة الجذر **GlobalSign Root CA** المكتشفة باتصال HTTPS تحقق منه Windows. الواي فاي لم يحدد بعد؛ أول flash يسأل اسمه وباسورده فقط. لا يوجد Gemini أو Supabase secret داخل firmware. نجاح البروتوكول من الكمبيوتر لا يثبت I2S أو الذاكرة أو الحركة على ESP32؛ هذه هي الاختبارات المتبقية بالقطع الفعلية.
+
+### فحص لاحق بعد نشر env على GitHub
+
+بعد نشر المفتاح في commit `889607d`، أعيد طلب Google مباشر بنفس المفتاح: **HTTP 401 / ACCESS_TOKEN_TYPE_UNSUPPORTED**. نجاح الاختبار السابق سجل تاريخي؛ إصدار جلسات صوت جديدة يحتاج مفتاحًا بديلًا واختبارًا جديدًا. أزيل تتبع `.env.local` من النسخة الحالية وأضيف تجاهل `.env*` مع استثناء `.env.example`؛ الملف المحلي محفوظ. الحذف لا يمحو المفتاح من Git history، لذلك لا تعِد استخدام المفتاح المنشور ولا ترفع البديل إلى GitHub.
