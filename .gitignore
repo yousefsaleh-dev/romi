@@ -1,17 +1,12 @@
 node_modules/
 .next/
-.env
-.env.*
-!.env.example
 .vercel/
 dist/
 .pio/
-firmware/esp32-romi/include/romi_secrets.h
 firmware/esp32-romi/include/romi_local.h
 .tools/
 coverage/
 tmp/
 *.tsbuildinfo
 *.log
-ROMI.zip
 supabase/.temp/
