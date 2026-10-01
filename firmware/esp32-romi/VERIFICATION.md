@@ -1,48 +1,55 @@
 # Verification record — 2026-10-01
 
-## Passed in this workspace
+## Native and core firmware builds
 
-Target: classic ESP32 (`esp32dev`), PlatformIO Core 6.2.0, `espressif32@6.12.0`, Arduino ESP32 2.0.17, ArduinoJson 7.4.3, ESP32Servo 3.2.1. Audio disabled throughout.
+Target: classic ESP32 DevKit V1 / ESP-WROOM-32 (`esp32dev`). PlatformIO 6.2.0, espressif32 6.12.0, Arduino ESP32 2.0.17, ArduinoJson 7.4.3, ESP32Servo 3.2.1; full adds WebSockets 2.7.3. Core explicitly excludes WebSockets.
 
-The network profiles were compiled with a temporary synthetic credentials header to ensure their network paths were included. This header contained no live credentials, used `https://romi.invalid`, and was removed after compilation. Its dummy CA was for compilation only; it cannot authenticate a server.
+Network builds used a temporary **synthetic** settings header (`romi.invalid`, nonfunctional compile-only CA) so network/audio code was retained by the linker. It contained no live credentials and was removed afterward. Local flags were restored to safe. The smaller example-settings image fails closed at runtime and is not a provisioned board.
 
-| Profile | Result | Static RAM | Flash | Build time |
+| Profile | Result | Static RAM / 327,680 | Flash / 1,310,720 | Time |
 | --- | --- | --- | --- | --- |
-| Offline bench | SUCCESS | 22,012 bytes / 6.7% | 353,785 bytes / 27.0% | 20.20 s |
-| Demo, certificate validation enabled | SUCCESS | 47,316 bytes / 14.4% | 972,917 bytes / 74.2% | 11.00 s |
-| Safe, certificate validation enabled | SUCCESS | 47,316 bytes / 14.4% | 972,109 bytes / 74.2% | 11.16 s |
-| Demo, explicit insecure TLS | SUCCESS | 47,316 bytes / 14.4% | 972,889 bytes / 74.2% | 11.25 s |
-| Safe, example settings restored | SUCCESS | 45,496 bytes / 13.9% | 813,929 bytes / 62.1% | 21.09 s |
+| Full native audio + demo verification, final pass | SUCCESS | 47,792 / 14.6% | 1,045,849 / 79.8% | 12.98 s |
+| Full native audio + sensor-required verification, final pass | SUCCESS | 47,792 / 14.6% | 1,044,733 / 79.7% | 14.24 s |
+| Audio-disabled safe core, final pass | SUCCESS | 47,316 / 14.4% | 972,173 / 74.2% | 11.20 s |
+| Offline audio bench, preceding matrix pass | SUCCESS | 22,424 / 6.8% | 377,681 / 28.8% | 9.22 s |
+| Audio-disabled demo, preceding matrix pass | SUCCESS | 47,316 / 14.4% | 972,985 / 74.2% | 21.71 s |
+| Offline core bench, preceding matrix pass | SUCCESS | 22,012 / 6.7% | 353,785 / 27.0% | 8.68 s |
 
-Static RAM excludes runtime allocations, including TLS, task stacks and queues; hardware testing must check actual free memory and stability. The smaller example build fails closed when private settings are absent and must not be mistaken for a provisioned network build.
+Static RAM excludes runtime task stacks, TLS, WebSocket frames, JSON and queues. The firmware fits the partition; stable heap under real speech, concurrent tool requests and long sessions must be measured on a board. `M` logs microphone peaks and free heap. I2S runs separately from the main GPIO loop. API requests share a recursive mutex with large provider-frame reception to limit allocation overlap.
 
-- `pnpm lint`: passed.
+## Real Gemini wire verification
+
+`pnpm smoke:esp32:live` passed using the actual server Live model/config and a one-use ephemeral token, with the same raw setup envelope and v1beta constrained endpoint as the firmware. It sent synthetic PCM16 mono 16 kHz input and received real PCM16 mono 24 kHz output: **15 audio chunks, largest message 41,263 bytes** on the passing run. Earlier responses reached 51,499 bytes, exposing the dependency's insufficient 15 KiB default. The full target now bounds frames at 64 KiB and applies a guarded patch to the pinned dependency definition.
+
+The probe accesses Gemini only: no Supabase, patient data or door. It verifies auth/URL/setup and provider PCM format from the development PC; it does not execute the ESP32 I2S driver or prove embedded memory stability. Node WebSocket support is required for the development probe (tested Node 24.18.0).
+
+## Other checks
+
+- `pnpm lint`: passed without warnings after updating the wire probe.
 - `pnpm typecheck`: passed.
-- `pnpm build`: passed; includes `/dashboard/kiosk`.
-- `pnpm test:device-door`: 7 passed, 0 failed. Covers authenticated status reads, physical success, physical failure, rejecting simulated success, pending timeout, cancellation, auth failure and malformed JSON.
-- Launcher parser/diagnostics tested in PowerShell 7 and Windows PowerShell 5.1. Fixed JSON port enumeration for 5.1.
-- Trusted root discovery tested against public `https://vercel.com` in both PowerShell versions. This verifies the discovery helper, not a ROMI deployment.
-- Offline upload with no board correctly refused instead of selecting Intel SOL COM3. No flash was attempted.
-- Private settings, local mode overrides, tool caches and environment files are Git-ignored. Local mode was restored to safe.
+- `pnpm test:device-door`: 7 passed, 0 failed. Authenticated status reads, physical success/failure, rejecting simulated success, pending timeout, cancellation, auth failure and malformed JSON.
+- `node --check scripts/esp32-live-wire-smoke.mjs`: passed.
+- Next.js production build passed for the existing kiosk implementation before native firmware was added. Native work changed package scripts and firmware/docs, not web/backend routes.
+- Launcher diagnostics run in PowerShell 7 and Windows PowerShell 5.1. Only Intel SOL COM3 was present; it is correctly excluded from USB board selection.
+- Trusted root discovery previously verified against public vercel.com in both PowerShell versions. This tests the helper, not ROMI's eventual deployment.
+- No real device settings header is present. No Gemini/Supabase server secret is embedded in firmware. The owner requested tracking environment/archive/device settings in a private repo; GitHub blocks the real Google key push until an owner exception. Caches and local mode flags stay ignored.
 
-## Pending physical/deployment verification
+## Implemented versus still unfinished
 
-No ESP32 USB board is present in this workspace. GPIO, servo movement, power stability, button debounce under network load, reconnect behavior and memory use on a live device remain unverified.
+**Implemented:** millis button/servo/LED state handling, Wi-Fi/NTP, bounded HTTPS worker, command expiry/duplicate checks, ACK/retry/backoff, native I2S mic/speaker, fresh UUID session creation from GPIO33, direct ephemeral Live WebSocket, current tool APIs, read-only physical door confirmation, cancellation/silence timeout, token cleanup and usage reporting. Phone browser voice is a fallback, not a PC microphone assumption.
 
-ROMI is not yet deployed to Vercel. `smoke:device:external` is prepared but its live deployment checks and isolated synthetic command/ACK cycle remain unexecuted. Follow [HACKATHON.md](HACKATHON.md) after deployment and before the event.
+**Stub:** production `doorOpenFeedback()` returns false until a physical sensor is integrated. Timed demo servo verification is explicit and logs its assumption. Audio-disabled core has a local session stub; it cannot remotely start phone voice.
 
-The browser physical fallback is implemented and typechecked, but a live browser/Gemini/ESP32 end-to-end exchange still needs testing. No backend routes, auth rules or database migrations were changed for this fallback.
+**Needs real hardware:** I2S channel ordering/gain/output levels, microphone/speaker quality, half duplex operation, power/current spikes, servo angles, GPIO behavior under network stalls, embedded TLS/free heap, reconnect/brownout/reset and a complete physical button-to-voice-to-door cycle. No ESP32 USB board is available here; nothing was flashed.
 
-## Explicitly unfinished capabilities
+**Needs deployment:** ROMI is not yet on Vercel. The external device API smoke script is ready but unexecuted. Its gated command/ACK cycle consumes commands and requires an isolated staging DB with physical actuator disconnected. Do not treat the Gemini probe as verification of ROMI's deployed APIs.
 
-- ESP32 Gemini session creation, I2S capture/playback and Live WebSocket transport. `ROMI_ENABLE_AUDIO=1` fails explicitly; there is no tested standalone audio mode.
-- Physical button control of the browser. The button currently toggles local firmware session state; browser controls start/stop voice.
-- Production door feedback. The verification hook returns failure without a sensor; demo alone may assume timed movement succeeded.
-- Different ESP32 families. S3/C3 require board selection, pin review and verification; this classic target is not a universal image.
-- Recovery/redelivery of already claimed commands after a reset. The existing server marks a polled command `sent` and does not redeliver it; see the field guide before retrying a demonstration.
+**Other limits:** different ESP32 families/components need board/pin/driver review. Native audio has no echo cancellation and pauses capture during playback. API response bound is 32 KiB, so long availability ranges can fail explicitly. The backend does not redeliver claimed `sent` commands after restart. This work did not change backend routes, SQL or authentication.
 
-## Files changed for the independent operator kit
+## Changed files
 
-Added `romi.ps1`, `include/romi_http.h`, `src/romi_http.cpp`, this record, `src/app/dashboard/kiosk/page.tsx`, `src/lib/ai/device-door.ts` and `scripts/device-door.test.mjs`.
+Added: `include/romi_audio.h`, `romi_audio_io.h`, `romi_live_protocol.h`, `romi_gemini_ca.h`; `src/romi_audio_io.cpp`, `romi_live.cpp`; `scripts/websocket_limits.py`; `STANDALONE.md`; repository `scripts/esp32-live-wire-smoke.mjs`.
 
-Updated core/config/PlatformIO, `.gitignore`, the browser voice component and dashboard navigation, package scripts, the firmware README/Arabic guide, root README and the four integration/design/API docs. Earlier core firmware and external smoke scripts remain in the repository.
+Updated: `src/main.cpp`, `romi_http.cpp`; `include/romi_config.h`, `romi_http.h`, `romi_secrets.example.h`; `platformio.ini`, `romi.ps1`; package scripts; firmware README/HACKATHON/this record; root README and API/architecture/ESP32/system-design docs. The separate earlier owner-requested private-configuration commit contains `.env.local`, `ROMI.zip` and ignore changes.
+
+Follow [the plain Arabic steps](STANDALONE.md) and [recovery guide](HACKATHON.md).

@@ -4,9 +4,9 @@
 
 ROMI is an MVP for one hospital, one entrance/door, and one administrator account. The hospital and departments are demonstration data, not an official Assiut University Hospitals integration. There are no patient accounts, public booking portal, multiple hospitals, medical records, or medical advice.
 
-The project provides a Next.js admin dashboard and voice simulator, authenticated API routes, Supabase Auth/Postgres, and Gemini Live speech-to-speech. The `firmware/esp32-romi` directory now contains an ESP32 DevKit V1 core firmware target and provisional pin map. Its audio codec path and physical actuator have not been verified on hardware.
+The project provides a Next.js admin dashboard and voice simulator, authenticated API routes, Supabase Auth/Postgres, and Gemini Live speech-to-speech. The `firmware/esp32-romi` directory now contains ESP32 DevKit V1 core and standalone I2S/Gemini Live firmware targets with a centralized pin map. Its audio codec path and physical actuator have not been verified on hardware.
 
-The implemented physical fallback is `/dashboard/kiosk`: browser audio with an operator-supplied device token in RAM, using the existing `kiosk` API flow and waiting for ESP32 acknowledgement. The separate simulator remains a virtual door flow. The Windows firmware launcher and Arabic field guide support offline bench tests and preparation before the event; neither substitutes for hardware verification.
+Plan A runs voice directly on the ESP32, started/cancelled by the single GPIO33 button. The implemented phone fallback is `/dashboard/kiosk`: browser audio with an operator-supplied device token in RAM, using the existing `kiosk` API flow and waiting for ESP32 acknowledgement. The separate simulator remains a virtual door flow. The Windows firmware launcher and Arabic field guide support offline bench tests and preparation before the event; neither substitutes for hardware verification.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ Admin browser simulator ── short-lived Live token ──► Gemini Live
                             ESP32 core firmware
 ```
 
-The browser and (future) kiosk connect directly to Gemini Live using a one-use, short-lived token minted by `POST /api/ai/session`. The long-lived Gemini API key stays on the server. Gemini tools do not have direct database or actuator access: tool calls go through authenticated Next.js routes, which validate the session and use the server-only Supabase service key. Door opening requires a server-created command; the ESP32 cannot decide booking eligibility.
+The browser and native ESP32 kiosk connect directly to Gemini Live using a one-use, short-lived token minted by `POST /api/ai/session`. The long-lived Gemini API key stays on the server. Gemini tools do not have direct database or actuator access: tool calls go through authenticated Next.js routes, which validate the session and use the server-only Supabase service key. Door opening requires a server-created command; the ESP32 cannot decide booking eligibility.
 
 ## Main data
 
@@ -46,7 +46,7 @@ The browser and (future) kiosk connect directly to Gemini Live using a one-use, 
 
 ## AI session and tool flow
 
-1. The browser requests microphone permission and creates a fresh UUID `request_id` for every new conversation.
+1. The ESP32 starts from the physical button, or the fallback browser requests microphone permission. Both create a fresh UUID `request_id` for every new conversation.
 2. An admin session or authorized kiosk asks `POST /api/ai/session` for a one-use, short-lived Gemini token. The API registers the request, its source/model/billing tier, and adds a Cairo-local current timestamp to that session's system instructions.
 3. The client connects directly to Gemini Live with audio input/output, the pinned Egyptian female concierge voice (`ar-eg-concierge-7`), Egyptian Arabic instructions, and the function declarations. Each session is new; ROMI does not carry transcript/context to the next one.
 4. Gemini may call `check_in_booking`, `find_available_slots`, `create_booking`, or `end_conversation`. The client forwards business operations to authenticated API routes; the server returns authoritative results to Gemini. Name is saved on a booking but never used for check-in.

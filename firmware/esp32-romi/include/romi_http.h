@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 enum class RomiRequestKind { Poll, Acknowledge };
 
@@ -18,3 +20,4 @@ struct RomiHttpResult {
 bool startHttpWorker(const char* baseUrl);
 bool submitHttpJob(const RomiHttpJob& job);
 bool takeHttpResult(RomiHttpResult& response);
+SemaphoreHandle_t romiApiMutex();

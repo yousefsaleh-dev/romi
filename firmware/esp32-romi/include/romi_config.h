@@ -33,6 +33,21 @@ static constexpr uint8_t I2S_BCLK_PIN = 14;
 static constexpr uint8_t I2S_LRCLK_PIN = 27;
 static constexpr uint8_t I2S_MIC_DATA_PIN = 32;
 static constexpr uint8_t I2S_AMP_DATA_PIN = 22;
+static constexpr uint32_t I2S_CLOCK_RATE = 48000;
+static constexpr uint32_t MIC_RATE = 16000;
+static constexpr uint32_t SPEAKER_RATE = 24000;
+static constexpr int MIC_GAIN = 4;
+static constexpr int SPEAKER_VOLUME_PERCENT = 35;
+static constexpr uint32_t SESSION_CONNECT_TIMEOUT_MS = 25000;
+static constexpr uint32_t SESSION_SILENCE_TIMEOUT_MS = 20000;
+static constexpr uint32_t SESSION_MAX_MS = 8 * 60 * 1000;
+static constexpr uint32_t SESSION_CLOSE_DRAIN_MS = 15000;
+static constexpr size_t SPEAKER_BUFFER_SAMPLES = 4096;
+static constexpr size_t LIVE_MAX_MESSAGE_BYTES = 65536;
+static constexpr int MIC_ACTIVITY_THRESHOLD = 500;
+static constexpr int MIC_LEFT_SLOT = 0;
+static constexpr char GEMINI_HOST[] = "generativelanguage.googleapis.com";
+static constexpr char GEMINI_API_VERSION[] = "v1beta";
 
 static constexpr int DOOR_CLOSED_ANGLE = 0;
 static constexpr int DOOR_OPEN_ANGLE = 90;
@@ -54,6 +69,12 @@ static constexpr uint32_t COMMAND_EXPIRY_GUARD_MS = 6000;
 static constexpr size_t RECENT_COMMAND_COUNT = 16;
 
 static_assert(DOOR_CLOSED_ANGLE >= 0 && DOOR_CLOSED_ANGLE <= 180, "Invalid closed angle");
+static_assert(I2S_CLOCK_RATE % MIC_RATE == 0 && I2S_CLOCK_RATE % SPEAKER_RATE == 0,
+              "Shared clocks need integer input/output sample ratios");
+static_assert(MIC_LEFT_SLOT >= 0 && MIC_LEFT_SLOT < 2 && MIC_GAIN > 0,
+              "Invalid microphone slot or gain");
+static_assert(SPEAKER_VOLUME_PERCENT >= 0 && SPEAKER_VOLUME_PERCENT <= 100,
+              "Invalid speaker volume");
 static_assert(DOOR_OPEN_ANGLE >= 0 && DOOR_OPEN_ANGLE <= 180, "Invalid open angle");
 static_assert(SERVO_MOVE_WAIT_MS * 2 + SERVO_OPEN_HOLD_MS + COMMAND_EXPIRY_GUARD_MS < 20000,
               "Door cycle is too slow for the server's 20-second command lifetime");

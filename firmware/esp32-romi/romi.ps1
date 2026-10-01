@@ -2,7 +2,7 @@
 param(
     [ValidateSet('menu', 'prepare', 'configure', 'doctor', 'ports', 'build', 'flash', 'monitor', 'test')]
     [string]$Action = 'menu',
-    [ValidateSet('safe', 'bench', 'demo')]
+    [ValidateSet('safe', 'bench', 'demo', 'full', 'full-safe', 'audio-bench')]
     [string]$Mode = 'safe',
     [string]$Port = '',
     [switch]$InsecureTls
@@ -47,17 +47,21 @@ function Invoke-PlatformIO([string[]]$PioArguments) {
 }
 
 function Set-LocalMode([string]$SelectedMode, [bool]$SkipCertificateValidation) {
-    if ($SkipCertificateValidation -and $SelectedMode -ne 'demo') {
-        throw '-InsecureTls is allowed only with -Mode demo.'
+    if ($SkipCertificateValidation -and $SelectedMode -notin @('demo','full')) {
+        throw '-InsecureTls is allowed only with demo or full hackathon modes.'
     }
-    $bench = [int]($SelectedMode -eq 'bench')
-    $demo = [int]($SelectedMode -eq 'demo')
-    $debug = [int]($SelectedMode -ne 'safe')
+    $bench = [int]($SelectedMode -in @('bench','audio-bench'))
+    $demo = [int]($SelectedMode -in @('demo','full'))
+    $debug = [int]($SelectedMode -notin @('safe','full-safe'))
+    $audio = [int]($SelectedMode -in @('full','full-safe','audio-bench'))
+    $script:BuildEnvironment = if ($audio) { 'romi-full-devkit-v1' } else { 'romi-devkit-v1' }
     $insecure = [int]$SkipCertificateValidation
     $header = @"
 #pragma once
 // Local launcher settings; this file is ignored by Git.
-#define ROMI_ENABLE_AUDIO 0
+#ifndef ROMI_ENABLE_AUDIO
+#define ROMI_ENABLE_AUDIO $audio
+#endif
 #define ROMI_BENCH_MODE $bench
 #define ROMI_DEMO_ASSUME_SERVO_MOVED $demo
 #define ROMI_HACKATHON_DEBUG_MODE $debug
@@ -65,7 +69,7 @@ function Set-LocalMode([string]$SelectedMode, [bool]$SkipCertificateValidation) 
 "@
     $headerPath = Join-Path $script:FirmwareDirectory 'include/romi_local.h'
     [IO.File]::WriteAllText($headerPath, $header, [Text.UTF8Encoding]::new($false))
-    Write-Host "Mode: $SelectedMode | Audio: OFF | Insecure TLS: $SkipCertificateValidation"
+    Write-Host "Mode: $SelectedMode | Audio: $audio | Insecure TLS: $SkipCertificateValidation"
     if ($demo) { Write-Host 'DEMO: timed servo motion will be reported as success without a door sensor.' -ForegroundColor Yellow }
     if ($insecure) { Write-Host 'DEMO: the server certificate will not be verified.' -ForegroundColor Yellow }
 }
@@ -146,7 +150,7 @@ function Get-TrustedRootCa([Uri]$DeploymentUri) {
 }
 
 function Configure-Device {
-    Write-Host 'Saved only in ignored include/romi_secrets.h. Do not paste provider or database keys.'
+    Write-Host 'Device settings: include/romi_secrets.h. Do not paste provider or database keys.'
     $ssid = Read-Host 'WiFi SSID (2.4 GHz)'
     $wifiPassword = Read-PrivateValue 'WiFi password (blank for an open network)'
     $baseUrl = (Read-Host 'ROMI HTTPS URL, e.g. https://romi.vercel.app').Trim().TrimEnd('/')
@@ -180,7 +184,7 @@ static constexpr char ROMI_ROOT_CA_BUNDLE[] = $(ConvertTo-CppLiteral $certificat
 }
 
 function Assert-DeviceSettings {
-    if ($Mode -eq 'bench') { return }
+    if ($Mode -in @('bench','audio-bench')) { return }
     $secretsPath = Join-Path $script:FirmwareDirectory 'include/romi_secrets.h'
     if (!(Test-Path -LiteralPath $secretsPath)) { throw 'Run configure first, or use -Mode bench for offline hardware tests.' }
     $secretsHeader = [IO.File]::ReadAllText($secretsPath)
@@ -192,7 +196,7 @@ function Assert-DeviceSettings {
 
 function Build-Core([string]$SelectedMode, [bool]$SkipCertificateValidation) {
     Set-LocalMode $SelectedMode $SkipCertificateValidation
-    Invoke-PlatformIO -PioArguments @('run', '-d', $script:FirmwareDirectory, '-e', 'romi-devkit-v1')
+    Invoke-PlatformIO -PioArguments @('run', '-d', $script:FirmwareDirectory, '-e', $script:BuildEnvironment)
 }
 
 function Show-Doctor {
@@ -219,16 +223,18 @@ function Show-Menu {
     Write-Host '2 configure: enter WiFi, URL and device token privately'
     Write-Host '3 doctor   : inspect tools, settings and USB ports'
     Write-Host '4 test     : flash offline bench mode and open logs (O/C/T/S)'
-    Write-Host '5 flash    : flash online demo mode using the trusted CA'
+    Write-Host '5 flash    : flash standalone voice + door (mic/amplifier required)'
     Write-Host '6 monitor  : open live logs'
-    $choice = Read-Host 'Choose 1-6'
+    Write-Host '7 audio test: flash offline mic/speaker diagnostics (M/A)'
+    $choice = Read-Host 'Choose 1-7'
     switch ($choice) {
         '1' { $script:Action = 'prepare' }
         '2' { $script:Action = 'configure' }
         '3' { $script:Action = 'doctor' }
         '4' { $script:Action = 'test' }
-        '5' { $script:Action = 'flash'; $script:Mode = 'demo' }
+        '5' { $script:Action = 'flash'; $script:Mode = 'full' }
         '6' { $script:Action = 'monitor' }
+        '7' { $script:Action = 'test'; $script:Mode = 'audio-bench' }
         default { throw 'Invalid menu choice.' }
     }
 }
@@ -241,9 +247,11 @@ try {
         'prepare' {
             Build-Core 'bench' $false
             Build-Core 'demo' $false
+            Build-Core 'audio-bench' $false
+            Build-Core 'full' $false
             Build-Core 'safe' $false
             New-Item -ItemType Directory -Path $script:ToolsDirectory -Force | Out-Null
-            $report = 'Tools and classic ESP32 dependencies cached. Bench/demo/safe builds passed. Hardware and network remain unverified.'
+            $report = 'Core and standalone audio builds passed. Hardware and deployed ROMI API remain unverified.'
             [IO.File]::WriteAllText((Join-Path $script:ToolsDirectory 'prepare-report.txt'), $report)
             Write-Host 'Prepared. Keep this repo folder AND this Windows user profile on the competition laptop.' -ForegroundColor Green
             Write-Host 'A new clone alone does not include private device settings or cached tools.'
@@ -256,18 +264,20 @@ try {
             Set-LocalMode $Mode ([bool]$InsecureTls)
             $selectedPort = Select-UploadPort
             Write-Host "Uploading to $selectedPort. Close other Serial Monitor windows first."
-            Invoke-PlatformIO -PioArguments @('run', '-d', $script:FirmwareDirectory, '-e', 'romi-devkit-v1', '-t', 'upload', '--upload-port', $selectedPort)
+            Invoke-PlatformIO -PioArguments @('run', '-d', $script:FirmwareDirectory, '-e', $script:BuildEnvironment, '-t', 'upload', '--upload-port', $selectedPort)
         }
         'monitor' {
             $selectedPort = Select-UploadPort
-            Write-Host 'Ctrl+C closes the monitor. In bench/demo: O=open C=close T=cycle S=status P=poll.'
+            Write-Host 'Ctrl+C closes the monitor. Debug: O=open C=close T=cycle S=status P=poll. Audio: M=mic levels A=test tone.'
             Invoke-PlatformIO -PioArguments @('device', 'monitor', '-p', $selectedPort, '-b', '115200')
         }
         'test' {
-            Set-LocalMode 'bench' $false
+            $testMode = if ($Mode -eq 'audio-bench') { 'audio-bench' } else { 'bench' }
+            Set-LocalMode $testMode $false
             $selectedPort = Select-UploadPort
-            Invoke-PlatformIO -PioArguments @('run', '-d', $script:FirmwareDirectory, '-e', 'romi-devkit-v1', '-t', 'upload', '--upload-port', $selectedPort)
+            Invoke-PlatformIO -PioArguments @('run', '-d', $script:FirmwareDirectory, '-e', $script:BuildEnvironment, '-t', 'upload', '--upload-port', $selectedPort)
             Write-Host 'Offline bench: type T to run one servo cycle; S to print state. Ctrl+C to exit.'
+            if ($testMode -eq 'audio-bench') { Write-Host 'Audio bench: M=show mic peaks (speak, then M again); A=short speaker tone. No API/session calls.' }
             Invoke-PlatformIO -PioArguments @('device', 'monitor', '-p', $selectedPort, '-b', '115200')
         }
     }

@@ -18,6 +18,7 @@ namespace {
 QueueHandle_t jobQueue = nullptr;
 QueueHandle_t resultQueue = nullptr;
 String deployedBaseUrl;
+SemaphoreHandle_t apiMutex = nullptr;
 
 // HTTPClient decodes chunked responses through this stream without growing RAM.
 class BoundedResponse : public Stream {
@@ -45,6 +46,7 @@ RomiHttpResult performRequest(const RomiHttpJob& job) {
   RomiHttpResult response;
   response.kind = job.kind;
   if (WiFi.status() != WL_CONNECTED) return response;
+  if (xSemaphoreTakeRecursive(apiMutex, pdMS_TO_TICKS(15000)) != pdTRUE) return response;
   WiFiClientSecure client;
 #if ROMI_ALLOW_INSECURE_TLS_FOR_DEMO
   client.setInsecure();
@@ -58,7 +60,10 @@ RomiHttpResult performRequest(const RomiHttpJob& job) {
   http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   const char* path = job.kind == RomiRequestKind::Poll
       ? "/api/device/commands" : "/api/device/commands/ack";
-  if (!http.begin(client, deployedBaseUrl + path)) return response;
+  if (!http.begin(client, deployedBaseUrl + path)) {
+    xSemaphoreGiveRecursive(apiMutex);
+    return response;
+  }
   http.addHeader("Authorization", String("Bearer ") + ROMI_DEVICE_TOKEN);
   http.addHeader("Content-Type", "application/json");
   response.status = job.kind == RomiRequestKind::Poll ? http.GET() : http.POST(String(job.body));
@@ -67,6 +72,7 @@ RomiHttpResult performRequest(const RomiHttpJob& job) {
     if (http.writeToStream(&stream) < 0) response.status = -1000;
   }
   http.end();
+  xSemaphoreGiveRecursive(apiMutex);
   return response;
 }
 
@@ -82,12 +88,15 @@ void httpWorker(void*) {
 
 bool startHttpWorker(const char* baseUrl) {
   deployedBaseUrl = baseUrl;
+  apiMutex = xSemaphoreCreateRecursiveMutex();
   jobQueue = xQueueCreate(1, sizeof(RomiHttpJob));
   resultQueue = xQueueCreate(1, sizeof(RomiHttpResult));
-  if (jobQueue && resultQueue &&
+  if (apiMutex && jobQueue && resultQueue &&
       xTaskCreate(httpWorker, "romi-http", 8192, nullptr, 1, nullptr) == pdPASS) return true;
   if (jobQueue) vQueueDelete(jobQueue);
   if (resultQueue) vQueueDelete(resultQueue);
+  if (apiMutex) vSemaphoreDelete(apiMutex);
+  apiMutex = nullptr;
   jobQueue = nullptr;
   resultQueue = nullptr;
   return false;
@@ -100,3 +109,4 @@ bool submitHttpJob(const RomiHttpJob& job) {
 bool takeHttpResult(RomiHttpResult& response) {
   return resultQueue && xQueueReceive(resultQueue, &response, 0) == pdTRUE;
 }
+SemaphoreHandle_t romiApiMutex() { return apiMutex; }

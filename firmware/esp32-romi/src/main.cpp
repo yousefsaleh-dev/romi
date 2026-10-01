@@ -7,6 +7,7 @@
 
 #include "romi_config.h"
 #include "romi_http.h"
+#include "romi_audio.h"
 
 #if __has_include("romi_secrets.h")
 #include "romi_secrets.h"
@@ -94,6 +95,15 @@ void setErrorStatus() { showStatus(StatusLight::Error); }
 void setDoorOpeningStatus() { showStatus(StatusLight::DoorOpening); }
 
 void refreshState() {
+#if ROMI_ENABLE_AUDIO
+  switch (audioSessionState()) {
+    case RomiSessionState::Idle: sessionState = AppState::Idle; break;
+    case RomiSessionState::Starting: sessionState = AppState::SessionStarting; break;
+    case RomiSessionState::Active: sessionState = AppState::SessionActive; break;
+    case RomiSessionState::Closing: sessionState = AppState::SessionClosing; break;
+    case RomiSessionState::Error: sessionState = AppState::Error; break;
+  }
+#endif
   AppState next = !configurationReady ? AppState::Error
       : !ROMI_BENCH_MODE && (WiFi.status() != WL_CONNECTED || !timeSyncStarted) ? AppState::WifiConnecting
       : doorPhase != DoorPhase::Idle && doorPhase != DoorPhase::AckPending ? AppState::DoorOpening
@@ -461,6 +471,9 @@ void receiveNetworkResult() {
 }
 
 void onButtonPressed() {
+#if ROMI_ENABLE_AUDIO
+  toggleAudioSession();
+#else
   // Audio-free firmware cannot own a Gemini session or control a separate browser.
   // This local state lets the single button start/cancel the physical kiosk workflow.
   if (sessionState == AppState::Idle) {
@@ -475,6 +488,7 @@ void onButtonPressed() {
     Serial.println("[BTN] Session cancelled");
     sessionState = AppState::Idle;
   }
+#endif
   refreshState();
 }
 
@@ -494,6 +508,7 @@ void readButton() {
 void readDebugCommands() {
   while (Serial.available()) {
     const char key = toupper(Serial.read());
+    runAudioDebug(key);
     switch (key) {
       case 'O':
         if (doorPhase == DoorPhase::Idle && !networkBusy) {
@@ -544,9 +559,6 @@ void setup() {
 #if ROMI_DEMO_ASSUME_SERVO_MOVED
   Serial.println("[DEMO] Door ACK may use timed servo movement; no physical feedback sensor");
 #endif
-#if ROMI_ENABLE_AUDIO
-#error "ROMI audio is not implemented. Keep ROMI_ENABLE_AUDIO=0 until the audio module is verified."
-#endif
   if (ROMI_BENCH_MODE) {
     configurationReady = true;
     Serial.println("[BENCH] Offline hardware test; WiFi and API polling disabled");
@@ -563,6 +575,11 @@ void setup() {
     WiFi.setAutoReconnect(false);
     maintainWifi();
   }
+#if ROMI_ENABLE_AUDIO
+  if (configurationReady && !startAudioSystem(apiBaseUrl.c_str())) {
+    Serial.println("[AUDIO ERROR] I2S/live task setup failed; door core remains available");
+  }
+#endif
   refreshState();
 }
 

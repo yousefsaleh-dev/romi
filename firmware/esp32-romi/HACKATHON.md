@@ -2,13 +2,13 @@
 
 ## الفكرة في دقيقة
 
-كود ESP32 بيتحول لملف بواسطة **build**، وبيتكتب في ذاكرة البورد بكابل USB بواسطة **flash / upload**. بعد كده البورد تشغّله بنفسها كل ما تتوصل بالكهرباء. **Serial Monitor** هو شاشة الـlogs بتاعتها على اللابتوب.
+كود ESP32 بيتحول لملف بواسطة **build**، وبيتكتب في ذاكرة البورد بكابل USB بواسطة **flash / upload**. بعد كده البورد تشغّله بنفسها كل ما تتوصل بالكهرباء. **Serial Monitor** هو شاشة الـlogs بتاعتها على الكمبيوتر.
 
 اسم الواي فاي وكلمة السر ورابط الموقع وتوكن الجهاز بنكتبهم في إعدادات محلية، وبعدها flash. تغيير الواي فاي يحتاج configure ثم flash تاني. التوكن هو نفس `ROMI_DEVICE_TOKEN` على Vercel؛ مفيش Gemini أو Supabase secrets على البورد.
 
-**المسار الجاهز للمسابقة:** اللابتوب/الموبايل يشغل الصوت من المتصفح، وESP32 تشغل الباب. الاتنين يتواصلوا مع موقعك المنشور؛ مش لازم يكونوا على نفس الشبكة. قطع صوت ESP32 لو موجودة تفضل اختيارية: كود I2S/Gemini على البورد لسه مش منفّذ.
+**Plan A هو ESP32 مستقلة بالصوت والزرار**. اتبع [STANDALONE.md](STANDALONE.md): wiring → audio-bench → configure → flash full → ضغطة زرار. الكمبيوتر للرفع والاختبار؛ بعد الرفع شاحن USB يكفي. هذا الملف فيه التحضير والأعطال وبديل الموبايل لو قطع الصوت ناقصة.
 
-## 1. جهّز اللابتوب قبل المسابقة
+## 1. جهّز الكمبيوتر قبل المسابقة
 
 من PowerShell في جذر المشروع:
 
@@ -17,14 +17,14 @@
 .\firmware\esp32-romi\romi.ps1 doctor
 ```
 
-`prepare` يجهز PlatformIO ويبني bench وdemo وsafe ويحفظ الأدوات المطلوبة محليًا. لو Python ناقص، ثبّت Python 3.11 أو أحدث مع إضافته لـPATH ثم كرر الأمر. لو Windows منع السكريبت، نفّذ في **نافذة PowerShell الحالية فقط**:
+`prepare` يجهز PlatformIO ويبني اختبارات القطع ووضع الصوت المستقل ووضع الباب فقط ويحفظ الأدوات المطلوبة محليًا. لو Python ناقص، ثبّت Python 3.11 أو أحدث مع إضافته لـPATH ثم كرر الأمر. لو Windows منع السكريبت، نفّذ في **نافذة PowerShell الحالية فقط**:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 ```
 
-- استخدم نفس اللابتوب ونفس حساب Windows في المسابقة. احتفظ بمجلد المشروع كاملًا، بما فيه `.tools` و`.pio`، وكاش `%USERPROFILE%\.platformio`. `clone` لوحده لا ينقل الإعدادات الخاصة أو الأدوات المحمّلة.
-- احتفظ بنسخة خاصة آمنة من `.env.local` و`include/romi_secrets.h` بعد إعدادها. الاتنين مش في Git؛ لا ترفعهم.
+- استخدم نفس الكمبيوتر ونفس حساب Windows في المسابقة. احتفظ بمجلد المشروع كاملًا، بما فيه `.tools` و`.pio`، وكاش `%USERPROFILE%\.platformio`. `clone` لوحده لا ينقل الإعدادات الخاصة أو الأدوات المحمّلة.
+- احتفظ بنسخة خاصة آمنة من `.env.local` و`include/romi_secrets.h` بعد إعدادها. المالك طلب رفع env/إعدادات الجهاز إلى repo خاص؛ GitHub قد يوقف المفتاح حتى يسمح المالك باستثناء. الملفات المحلية لا تنتقل بـclone قبل نجاح push.
 - جهز كابلين USB **بيوصلوا بيانات**، hotspot موبايل 2.4 GHz، وتعريف USB المناسب محفوظ قبل المسابقة: [CP210x الرسمي](https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers) أو تعريف CH340/CH341 من WCH حسب الشريحة المكتوبة على البورد.
 - افتح الدليل ده أو اطبعه. لو تقدر تستعير ESP32 وservo قبل المسابقة، اختبر التوصيل مرة واحدة؛ نجاح build لا يثبت الكهرباء أو الحركة.
 
@@ -74,7 +74,7 @@ Remove-Item Env:ROMI_TEST_ISOLATED_DB, Env:ROMI_TEST_ALLOW_DOOR_COMMAND
 | LED أحمر | GPIO25 → مقاومة 330Ω → رجل LED الطويلة؛ القصيرة → GND |
 | LED أخضر | GPIO26 → مقاومة 330Ω → رجل LED الطويلة؛ القصيرة → GND |
 
-في bench الأخضر منور. ضغطة الزرار تحول الحالة المحلية إلى active والأحمر ينور؛ التالية ترجع idle. **الزرار لا يفتح الباب ولا يبدأ صوت المتصفح تلقائيًا.** الزرار ذو 4 أرجل فيه أرجل متصلة داخليًا: اختبر بالأفوميتر أن الرجلين المختارتين يتصلوا فقط أثناء الضغط.
+في bench الأخضر منور. ضغطة الزرار تحول الحالة المحلية إلى active والأحمر ينور؛ التالية ترجع idle. **في core bench الزرار محلي فقط. في full يبدأ/يلغي جلسة البورد؛ لا يفتح الباب مباشرة.** الزرار ذو 4 أرجل فيه أرجل متصلة داخليًا: اختبر بالأفوميتر أن الرجلين المختارتين يتصلوا فقط أثناء الضغط.
 
 ### ج. Servo SG90
 
@@ -94,14 +94,15 @@ Remove-Item Env:ROMI_TEST_ISOLATED_DB, Env:ROMI_TEST_ALLOW_DOOR_COMMAND
 .\firmware\esp32-romi\romi.ps1 configure
 ```
 
-هيطلب بالترتيب: اسم Wi-Fi 2.4 GHz، كلمة السر، رابط Vercel بدون `/api`، توكن الجهاز، ومسار root CA PEM موثوق. **اضغط Enter عند سؤال CA ليكتشفها تلقائيًا عبر اتصال يتحقق منه Windows**. كلمة السر والتوكن لا يظهران أثناء الكتابة. الإعدادات في `include/romi_secrets.h` المتجاهل من Git.
+هيطلب بالترتيب: اسم Wi-Fi 2.4 GHz، كلمة السر، رابط Vercel بدون `/api`، توكن الجهاز، ومسار root CA PEM موثوق. **اضغط Enter عند سؤال CA ليكتشفها تلقائيًا عبر اتصال يتحقق منه Windows**. كلمة السر والتوكن لا يظهران أثناء الكتابة. الإعدادات في `include/romi_secrets.h` المسموح بتتبعه في الـrepo الخاص بطلب المالك.
 
 نفّذ configure بعد النشر وقبل المسابقة حتى تتجهز CA الصحيحة. لو الاكتشاف فشل، راجع الإنترنت/تاريخ Windows أو أدخل PEM من جهة الشهادة الرسمية. شهادة السيرفر المؤقتة ليست بديلًا عن root CA. يمكن وضع أكثر من root PEM في ملف واحد. إذا مضطر لعرض demo بدونها، اكتب `SKIP` عند سؤال CA؛ flash شبكة عادي يتوقف برسالة واضحة، والبديل الصريح تحت. لو غيّرت deployment أو شهادة الموقع لاحقًا، أعد configure وflash عند الحاجة.
 
-بدون حساس باب استخدم **demo**:
+بدون حساس باب، ومع قطع الصوت استخدم **full** حسب STANDALONE.md. الأوامر التالية لوضع **الباب فقط مع صوت الموبايل**:
 
 ```powershell
-.\firmware\esp32-romi\romi.ps1 flash -Mode demo
+.\firmware\esp32-romi\romi.ps1 test -Mode audio-bench
+.\firmware\esp32-romi\romi.ps1 flash -Mode full
 .\firmware\esp32-romi\romi.ps1 monitor
 ```
 
@@ -117,29 +118,26 @@ Remove-Item Env:ROMI_TEST_ISOLATED_DB, Env:ROMI_TEST_ALLOW_DOOR_COMMAND
 
 ## 5. شغّل الصوت والباب معًا
 
-1. على اللابتوب/الموبايل افتح موقعك HTTPS وسجل دخول admin.
-2. افتح **استقبال مع ESP32**: `/dashboard/kiosk` وأدخل نفس device token. محفوظ في ذاكرة الصفحة فقط؛ بعد refresh ستدخله مجددًا.
-3. اسمح بالميكروفون واضغط «ابدأ الاستقبال». `/dashboard/simulation` للمحاكاة فقط؛ لن تحرك ESP32.
-4. استخدم حجزًا تجريبيًا داخل entry window، أو اطلب أقرب موعد يسمح بالدخول الآن ووافق صراحة على فتح الباب. الحجز البعيد/المرفوض لا يصدر أمرًا.
-5. راقب Serial: command received → Opening → Closing → `[ACK] Saved`. المتصفح ينتظر تأكيد ESP32 ولا يرسل ACK بدلها. في demo النجاح مبني على الزمن وليس حساسًا.
-6. جرّب قطع hotspot وإعادته: البورد تعيد الاتصال. الأمر القديم قد ينتهي؛ أنشئ تجربة جديدة حسب حالة الحجز بدل توقع إعادة تنفيذ القديم.
+**مع INMP441 وMAX98357A وسماعة:** نفذ دليل [التشغيل المستقل](STANDALONE.md). ارفع `flash -Mode full`، انتظر Wi-Fi/NTP، ثم اضغط GPIO33. البورد تطلب `/api/ai/session` وتبدأ التحية بنفسها. الضغطة التالية تلغي الجلسة. الباب يتحرك فقط بأمر صحيح من API بعد المحادثة، لا بسبب الضغطة مباشرة. وضع full يعلن افتراض نجاح السيرفو بدون حساس.
 
-كل محادثة تبدأ بزر المتصفح وتنتهي منه أو بإنهاء ROMI أو timeout. الزرار المادي حاليًا حالة محلية فقط؛ دمجه بالصوت مؤجل. اجعل المتصفح ظاهرًا للمستخدم ليكون بدء المحادثة واضحًا.
+**بدون قطع الصوت:** ارفع `flash -Mode demo`، افتح `/dashboard/kiosk` على **موبايل** بعد admin login، أدخل device token واسمح بالمايك ثم ابدأ من الشاشة. في هذا البديل الزرار المادي لا يتحكم بمتصفح الموبايل. `/dashboard/simulation` لا يصدر أوامر باب حقيقية. مفيش افتراض إن الـPC فيه مايك.
 
-## 6. لو حاجة ناقصة: اختار البديل فورًا
+اختبر حجزًا داخل entry window أو إنشاء موعد يسمح بالدخول الآن مع موافقة صريحة. راقب command → Opening → Closing → ACK. قطع hotspot وإعادته يختبر reconnect؛ قد ينتهي الأمر السابق، ولا يجوز إعادة حركة نفس ID.
+
+## 6. لو حاجة ناقصة: اختار البديل
 
 | الموجود/المشكلة | المسار |
 | --- | --- |
-| ESP32 + servo + إنترنت، بدون قطع صوت | الأساسي: `/dashboard/kiosk` + `flash -Mode demo` |
-| mic وamp وspeaker موجودين أيضًا | نفس الأساسي؛ audio على ESP32 غير جاهز، لا تجعل `ROMI_ENABLE_AUDIO=1` |
-| Wi-Fi المكان فاشل/صفحة موافقة | hotspot 2.4 GHz ثم configure وflash |
-| إنترنت ESP32 فاشل لكن اللابتوب online | browser simulator للصوت + bench و`T` لحركة يدوية؛ ليست دورة API متصلة |
-| Gemini متعطل/الحصة انتهت | dashboard والحجوزات + bench servo؛ لا تدّعي صوتًا يعمل |
-| مفيش servo أو مصدر 5V مناسب | browser simulator؛ لا تستبدل التغذية بGPIO |
-| بورد مختلفة أو مفيش بورد | browser simulator؛ تغيير النوع يحتاج build وpin map مناسبين |
-| مفيش إنترنت لكل الأجهزة | bench للservo/LED/button؛ Gemini والـAPI لا يعملان offline |
+| ESP32 + mic + amp + speaker + servo + إنترنت | Plan A: audio-bench ثم full؛ الزرار يبدأ الجلسة على البورد |
+| ESP32 + servo بدون قطع صوت | Plan B: موبايل `/dashboard/kiosk` + demo؛ البدء من شاشة الموبايل |
+| Wi-Fi المكان صفحة موافقة/فاشل | hotspot 2.4 GHz ثم configure وflash |
+| إنترنت البورد فاشل والموبايل online | simulator على الموبايل + bench وT لحركة يدوية؛ ليست دورة API متصلة |
+| Gemini متعطل/الحصة انتهت | الحجوزات + bench servo؛ لا تدّعي صوتًا يعمل |
+| مفيش servo أو مصدر 5V | simulator على الموبايل؛ لا تغذي servo من GPIO |
+| البورد S3/C3 أو قطع صوت مختلفة | board config وpin/driver review قبل flash؛ build الكلاسيك غير مناسب تلقائيًا |
+| مفيش إنترنت | audio-bench/bench فقط؛ Gemini والـAPI لا يعملان offline |
 
-**خطة 3 ساعات:** أول 30 دقيقة البورد والLED/button، التالية 30 servo bench، التالية 30 hotspot/API، التالية 30 browser/door، وآخر ساعة تجربة العرض وإصلاح الأعطال. لو خطوة تعطلت 15 دقيقة انتقل لبديلها ثم ارجع إن بقي وقت.
+جهز البرامج والـdeployment واختبار API **قبل** المنافسة. عند استلام القطع: البورد/button/LED → servo → tone/levels → Wi-Fi/API → زرار ومحادثة → الباب → تجربة فصل الكمبيوتر. لا توصل ميكانيزم باب حقيقي قبل اختبار الكهرباء والحركة.
 
 ## 7. دليل الأعطال السريع
 
@@ -160,11 +158,11 @@ Remove-Item Env:ROMI_TEST_ISOLATED_DB, Env:ROMI_TEST_ALLOW_DOOR_COMMAND
 | HTTP سالب، مثل -1 | راجع الإنترنت والرابط والساعة وroot CA؛ demo insecure للتشخيص الصريح فقط |
 | HTTP -1000 / Invalid JSON / 3xx | response كبير/مقطوع/غير متوقع؛ راجع origin وDeployment Protection وVercel logs؛ لا تعوّض بتحريك servo |
 | HTTP 5xx | Vercel logs وإعدادات Supabase/migrations؛ البورد تعمل backoff تلقائيًا |
-| No pending command رغم المحادثة | kiosk وليست simulation، حجز مقبول داخل entry window وجلسة فعالة |
-| Door feedback unavailable | safe لا يقبل نجاحًا بدون حساس؛ ارفع demo صراحة للهاكاثون |
+| No pending command رغم المحادثة | full على البورد أو kiosk على الموبايل؛ ليست simulation. حجز داخل entry window وجلسة فعالة |
+| Door feedback unavailable | safe/full-safe يحتاج حساسًا؛ استخدم demo/full صراحة للهاكاثون |
 | Expired / ACK 409 | TTL الأمر 20 ثانية أو سبق ACK؛ راجع الحجز واعمل تجربة جديدة، لا تعيد حركة نفس الأمر |
 | Command صار sent ثم restart | السيرفر الحالي لا يعيد تسليم sent؛ راجع dashboard ثم أمر جديد حسب حالة الحجز |
-| صوت المتصفح لا يبدأ | HTTPS وإذن mic وGEMINI_API_KEY على Vercel واتصال/حصة Gemini؛ جرّب اللابتوب |
+| صوت المتصفح لا يبدأ | على الموبايل: HTTPS وإذن mic. على البورد: audio-bench وM/A ثم session HTTP/Live logs. راجع GEMINI_API_KEY على Vercel وحصة Gemini |
 
 ## 8. ورقة الأوامر
 
@@ -177,14 +175,15 @@ Remove-Item Env:ROMI_TEST_ISOLATED_DB, Env:ROMI_TEST_ALLOW_DOOR_COMMAND
 .\firmware\esp32-romi\romi.ps1 doctor
 .\firmware\esp32-romi\romi.ps1 ports
 .\firmware\esp32-romi\romi.ps1 test
-.\firmware\esp32-romi\romi.ps1 flash -Mode demo
+.\firmware\esp32-romi\romi.ps1 test -Mode audio-bench
+.\firmware\esp32-romi\romi.ps1 flash -Mode full
 .\firmware\esp32-romi\romi.ps1 monitor
 ```
 
-لو عدة منافذ، أضف `-Port COM7` بعد التأكد من رقم البورد. `build -Mode safe` يفحص الترجمة فقط. `flash -Mode safe` بدون demo assumptions لكنه يحتاج تنفيذ حساس حقيقي لكي يقر نجاح فتح الباب. pins والزوايا والتوقيتات في `include/romi_config.h`؛ flags تكتبها الأداة في `romi_local.h` المتجاهل من Git، فاختيار mode من الأداة يغلب defaults.
+لو عدة منافذ، أضف `-Port COM7` بعد التأكد من رقم البورد. `build -Mode safe` يفحص الترجمة فقط. `flash -Mode safe` بدون demo assumptions لكنه يحتاج تنفيذ حساس حقيقي لكي يقر نجاح فتح الباب. pins والزوايا والتوقيتات في `include/romi_config.h`؛ flags تكتبها الأداة في `romi_local.h` المسموح بتتبعه في الـrepo الخاص بطلب المالك، فاختيار mode من الأداة يغلب defaults.
 
-## 9. قطع الصوت إذا ركّبتها لاحقًا
+## 9. قطع الصوت في Plan A
 
-INMP441: 3.3V فقط، L/R إلى GND، SCK14 وWS27 وSD32. MAX98357A: 5V الخارجي، BCLK14 وLRC27 وDIN22. clocks مشتركة عمدًا وdata منفصلة. السماعة 4Ω تقريبًا/3W بين Amp+ وAmp-؛ **Speaker- لا يتوصل GND**. كل GND مشتركة. SD وGAIN حسب القطعة الفعلية قبل التجربة. Wokwi custom placeholders لا تثبت الصوت. وجود القطع لا يضيف audio للfirmware الحالي.
+INMP441: 3.3V فقط، L/R إلى GND، SCK14 وWS27 وSD32. MAX98357A: 5V الخارجي، BCLK14 وLRC27 وDIN22. clocks مشتركة عمدًا وdata منفصلة. السماعة 4Ω تقريبًا/3W بين Amp+ وAmp-؛ **Speaker- لا يتوصل GND**. كل GND مشتركة. SD وGAIN حسب القطعة الفعلية قبل التجربة. Wokwi custom placeholders لا تثبت الصوت. وضع full يشغل قطع الصوت مباشرة؛ audio-bench يختبرها بدون Gemini. لا يوجد إثبات hardware قبل تجربة القطع نفسها.
 
 تعليمات BOOT والتعريفات: [Espressif Arduino troubleshooting](https://docs.espressif.com/projects/arduino-esp32/en/latest/troubleshooting.html)، [Espressif flashing troubleshooting](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/flashing-troubleshooting.html).
