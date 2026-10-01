@@ -4,6 +4,7 @@ ROMI is a single-hospital MVP for voice-guided appointment booking/check-in and 
 
 ## Project map
 
+- [ROMI.pdf](ROMI.pdf) — latest 24-slide presentation, including the technology stack and AI tools/API slides.
 - `src/` — Next.js admin dashboard and server API routes.
 - `supabase/migrations/` — schema, access policies, and device command queue.
 - `firmware/esp32-romi/` — ESP32 firmware workspace.
