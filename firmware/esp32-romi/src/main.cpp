@@ -1,13 +1,12 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
-#include <HTTPClient.h>
 #include <Preferences.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <time.h>
 
 #include "romi_config.h"
+#include "romi_http.h"
 
 #if __has_include("romi_secrets.h")
 #include "romi_secrets.h"
@@ -39,7 +38,10 @@ AppState sessionState = AppState::Idle;
 DoorPhase doorPhase = DoorPhase::Idle;
 DoorCommand doorCommand;
 bool debugCycle = false;
+bool networkBusy = false;
+bool apiError = false;
 String lastCommandId;
+String recentCommandIds;
 bool configurationReady = false;
 bool wasConnected = false;
 bool timeSyncStarted = false;
@@ -93,8 +95,9 @@ void setDoorOpeningStatus() { showStatus(StatusLight::DoorOpening); }
 
 void refreshState() {
   AppState next = !configurationReady ? AppState::Error
-      : WiFi.status() != WL_CONNECTED || !timeSyncStarted ? AppState::WifiConnecting
+      : !ROMI_BENCH_MODE && (WiFi.status() != WL_CONNECTED || !timeSyncStarted) ? AppState::WifiConnecting
       : doorPhase != DoorPhase::Idle && doorPhase != DoorPhase::AckPending ? AppState::DoorOpening
+      : apiError ? AppState::Error
       : sessionState;
   if (next == appState) return;
   appState = next;
@@ -137,6 +140,12 @@ int64_t daysSinceEpoch(int year, unsigned month, unsigned day) {
 
 // PostgreSQL timestamptz JSON can be UTC (Z) or carry an explicit offset.
 bool parseExpiry(const String& value, time_t& result) {
+  if (value.length() < 20 || value[4] != '-' || value[7] != '-' || value[10] != 'T' ||
+      value[13] != ':' || value[16] != ':') return false;
+  for (size_t index = 0; index < 19; ++index) {
+    if (index == 4 || index == 7 || index == 10 || index == 13 || index == 16) continue;
+    if (!isdigit(static_cast<unsigned char>(value[index]))) return false;
+  }
   int year, month, day, hour, minute, second, consumed = 0;
   if (sscanf(value.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%n", &year, &month, &day,
              &hour, &minute, &second, &consumed) != 6) return false;
@@ -152,6 +161,11 @@ bool parseExpiry(const String& value, time_t& result) {
   int offsetSeconds = 0;
   if (pos < value.length() && (value[pos] == '+' || value[pos] == '-')) {
     const int sign = value[pos++] == '+' ? 1 : -1;
+    if (value.length() - pos != 5 || value[pos + 2] != ':' ||
+        !isdigit(static_cast<unsigned char>(value[pos])) ||
+        !isdigit(static_cast<unsigned char>(value[pos + 1])) ||
+        !isdigit(static_cast<unsigned char>(value[pos + 3])) ||
+        !isdigit(static_cast<unsigned char>(value[pos + 4]))) return false;
     int offsetHours = 0, offsetMinutes = 0, used = 0;
     if (sscanf(value.c_str() + pos, "%2d:%2d%n", &offsetHours, &offsetMinutes, &used) != 2 ||
         offsetHours > 23 || offsetMinutes > 59) return false;
@@ -210,7 +224,7 @@ bool credentialsConfigured() {
 }
 
 void maintainWifi() {
-  if (!configurationReady) return;
+  if (ROMI_BENCH_MODE || !configurationReady) return;
   if (WiFi.status() == WL_CONNECTED) {
     if (!wasConnected) {
       wasConnected = true;
@@ -246,33 +260,6 @@ void maintainWifi() {
   Serial.println("[WIFI] Connecting...");
 }
 
-int request(const char* method, const String& path, const String* body, String& response) {
-  if (WiFi.status() != WL_CONNECTED || !clockReady()) return -1;
-  WiFiClientSecure client;
-#if ROMI_ALLOW_INSECURE_TLS_FOR_DEMO
-  client.setInsecure();
-#else
-  client.setCACert(ROMI_ROOT_CA_BUNDLE);
-#endif
-  client.setTimeout(romi::API_READ_TIMEOUT_MS);
-  HTTPClient http;
-  http.setConnectTimeout(romi::API_CONNECT_TIMEOUT_MS);
-  http.setTimeout(romi::API_READ_TIMEOUT_MS);
-  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-  if (!http.begin(client, apiBaseUrl + path)) return -1;
-  http.addHeader("Authorization", String("Bearer ") + ROMI_DEVICE_TOKEN);
-  int status;
-  if (body) {
-    http.addHeader("Content-Type", "application/json");
-    status = http.POST(*body);
-  } else {
-    status = http.GET();
-  }
-  if (status > 0) response = http.getString();
-  http.end();
-  return status;
-}
-
 void scheduleBackoff(uint32_t& deadline) {
   deadline = millis() + apiBackoffMs;
   apiBackoffMs = min(apiBackoffMs * 2, romi::API_BACKOFF_MAX_MS);
@@ -282,7 +269,10 @@ void resetBackoff() { apiBackoffMs = romi::API_DEFAULT_POLL_MS; }
 
 void beginCommand(const String& id, time_t expiry) {
   // Save before energizing the servo, so a reset cannot repeat this command.
-  if (preferences.putString("lastCommand", id) != id.length()) {
+  String updatedHistory = recentCommandIds;
+  if (updatedHistory.length() >= romi::RECENT_COMMAND_COUNT * 37) updatedHistory.remove(0, 37);
+  updatedHistory += id + '\n';
+  if (preferences.putString("recentCommands", updatedHistory) != updatedHistory.length()) {
     Serial.println("[ERROR] Could not persist command ID; refusing actuation");
     doorCommand = DoorCommand(id, expiry, false, "PERSISTENCE_FAILURE");
     doorPhase = DoorPhase::AckPending;
@@ -290,6 +280,7 @@ void beginCommand(const String& id, time_t expiry) {
     return;
   }
   lastCommandId = id;
+  recentCommandIds = updatedHistory;
   doorCommand = DoorCommand(id, expiry);
   doorPhase = DoorPhase::Opening;
   doorPhaseAt = millis();
@@ -299,22 +290,32 @@ void beginCommand(const String& id, time_t expiry) {
 }
 
 void pollCommands() {
-  if (!configurationReady || !timeSyncStarted || doorPhase != DoorPhase::Idle || !due(nextPollAt)) return;
+  if (ROMI_BENCH_MODE || networkBusy || !configurationReady || !timeSyncStarted ||
+      doorPhase != DoorPhase::Idle || !due(nextPollAt)) return;
+  RomiHttpJob job;
+  job.kind = RomiRequestKind::Poll;
+  networkBusy = submitHttpJob(job);
+  if (!networkBusy) return;
   Serial.println("[API] Polling door commands");
-  String response;
-  const int status = request("GET", "/api/device/commands", nullptr, response);
+}
+
+void completePoll(const RomiHttpResult& response) {
+  const int status = response.status;
   if (status != 200) {
+    apiError = true;
     Serial.printf("[ERROR] Poll HTTP %d%s\n", status, status == 401 ? " (check device token)" : "");
     scheduleBackoff(nextPollAt);
     return;
   }
   JsonDocument doc;
-  if (deserializeJson(doc, response) || !doc["command"].is<JsonVariant>()) {
+  if (deserializeJson(doc, response.body) || !doc["command"].is<JsonVariant>()) {
+    apiError = true;
     Serial.println("[ERROR] Invalid poll JSON");
     scheduleBackoff(nextPollAt);
     return;
   }
   resetBackoff();
+  apiError = false;
   uint32_t interval = doc["retry_after_ms"].is<uint32_t>()
       ? doc["retry_after_ms"].as<uint32_t>() : romi::API_DEFAULT_POLL_MS;
   nextPollAt = millis() + constrain(interval, romi::API_MIN_POLL_MS, romi::API_MAX_POLL_MS);
@@ -323,18 +324,21 @@ void pollCommands() {
     return;
   }
   if (!doc["command"].is<JsonObject>()) {
+    apiError = true;
     Serial.println("[ERROR] Invalid command object");
     return;
   }
-  const String id = doc["command"]["id"].as<String>();
+  String id = doc["command"]["id"].as<String>();
+  id.toLowerCase();
   const String expiryText = doc["command"]["expires_at"].as<String>();
   time_t expiry;
   if (!validUuid(id) || !parseExpiry(expiryText, expiry)) {
+    apiError = true;
     Serial.println("[ERROR] Invalid command ID or expiry; no actuation");
     return;
   }
   Serial.printf("[DOOR] Command received %s\n", shortId(id).c_str());
-  if (id == lastCommandId) {
+  if (id == lastCommandId || recentCommandIds.indexOf(id + '\n') >= 0) {
     Serial.println("[WARN] Duplicate command ignored; no actuation");
     doorCommand = DoorCommand(id, expiry, false, "DUPLICATE_COMMAND");
     doorPhase = DoorPhase::AckPending;
@@ -369,7 +373,7 @@ void advanceDoor() {
     case DoorPhase::Idle: case DoorPhase::AckPending: return;
     case DoorPhase::Opening:
       if (!elapsed(doorPhaseAt, romi::SERVO_MOVE_WAIT_MS)) return;
-      doorCommand.opened = doorOpenFeedback();
+      doorCommand.opened = debugCycle ? false : doorOpenFeedback();
       doorCommand.errorCode = doorCommand.opened ? nullptr : "DOOR_FEEDBACK_UNAVAILABLE";
       doorPhase = DoorPhase::Holding;
       doorPhaseAt = millis();
@@ -399,7 +403,7 @@ void advanceDoor() {
 }
 
 void acknowledgeCommand() {
-  if (doorPhase != DoorPhase::AckPending || !timeSyncStarted || !due(nextAckAt)) return;
+  if (networkBusy || doorPhase != DoorPhase::AckPending || !timeSyncStarted || !due(nextAckAt)) return;
   if (!commandHasTime(doorCommand.expiresAt, 0)) {
     Serial.printf("[ERROR] ACK window expired for %s; manual reconciliation needed\n",
                   shortId(doorCommand.id).c_str());
@@ -412,10 +416,27 @@ void acknowledgeCommand() {
   payload["command_id"] = doorCommand.id;
   payload["opened"] = doorCommand.opened;
   if (!doorCommand.opened) payload["error_code"] = doorCommand.errorCode ? doorCommand.errorCode : "UNKNOWN";
-  String body, response;
-  serializeJson(payload, body);
-  const int status = request("POST", "/api/device/commands/ack", &body, response);
+  RomiHttpJob job;
+  job.kind = RomiRequestKind::Acknowledge;
+  serializeJson(payload, job.body, sizeof(job.body));
+  networkBusy = submitHttpJob(job);
+}
+
+void completeAcknowledgement(const RomiHttpResult& response) {
+  const int status = response.status;
+  if (status == 200) {
+    JsonDocument acknowledgement;
+    if (deserializeJson(acknowledgement, response.body) ||
+        acknowledgement["command"]["id"].as<String>() != doorCommand.id ||
+        acknowledgement["command"]["status"].as<String>() != (doorCommand.opened ? "opened" : "failed")) {
+      apiError = true;
+      Serial.println("[ERROR] Invalid ACK response; retrying without moving servo");
+      scheduleBackoff(nextAckAt);
+      return;
+    }
+  }
   if (status == 200 || status == 409) {
+    apiError = false;
     Serial.printf("[ACK] %s command=%s\n", status == 200 ? "Saved" : "Already closed/expired (409)",
                   shortId(doorCommand.id).c_str());
     doorPhase = DoorPhase::Idle;
@@ -424,9 +445,19 @@ void acknowledgeCommand() {
     nextPollAt = millis() + romi::API_DEFAULT_POLL_MS;
     refreshState();
   } else {
+    apiError = true;
     Serial.printf("[ERROR] ACK HTTP %d%s\n", status, status == 401 ? " (check device token)" : "");
     scheduleBackoff(nextAckAt);
   }
+}
+
+void receiveNetworkResult() {
+  if (!networkBusy) return;
+  RomiHttpResult response;
+  if (!takeHttpResult(response)) return;
+  networkBusy = false;
+  if (response.kind == RomiRequestKind::Poll) completePoll(response);
+  else completeAcknowledgement(response);
 }
 
 void onButtonPressed() {
@@ -465,19 +496,19 @@ void readDebugCommands() {
     const char key = toupper(Serial.read());
     switch (key) {
       case 'O':
-        if (doorPhase == DoorPhase::Idle) {
+        if (doorPhase == DoorPhase::Idle && !networkBusy) {
           doorServo.write(romi::DOOR_OPEN_ANGLE);
           Serial.println("[DEBUG] Servo open");
         }
         break;
       case 'C':
-        if (doorPhase == DoorPhase::Idle) {
+        if (doorPhase == DoorPhase::Idle && !networkBusy) {
           doorServo.write(romi::DOOR_CLOSED_ANGLE);
           Serial.println("[DEBUG] Servo closed");
         }
         break;
       case 'T':
-        if (doorPhase == DoorPhase::Idle) {
+        if (doorPhase == DoorPhase::Idle && !networkBusy) {
           doorServo.write(romi::DOOR_OPEN_ANGLE);
           debugCycle = true;
           doorPhase = DoorPhase::Opening;
@@ -508,14 +539,26 @@ void setup() {
   doorServo.write(romi::DOOR_CLOSED_ANGLE);
   preferences.begin("romi-door", false);
   lastCommandId = preferences.getString("lastCommand", "");
+  lastCommandId.toLowerCase();
+  recentCommandIds = preferences.getString("recentCommands", "");
 #if ROMI_DEMO_ASSUME_SERVO_MOVED
   Serial.println("[DEMO] Door ACK may use timed servo movement; no physical feedback sensor");
 #endif
 #if ROMI_ENABLE_AUDIO
 #error "ROMI audio is not implemented. Keep ROMI_ENABLE_AUDIO=0 until the audio module is verified."
 #endif
-  configurationReady = credentialsConfigured();
-  if (configurationReady) {
+  if (ROMI_BENCH_MODE) {
+    configurationReady = true;
+    Serial.println("[BENCH] Offline hardware test; WiFi and API polling disabled");
+    Serial.println("[DEBUG] Commands: O=open C=close T=cycle S=status");
+  } else {
+    configurationReady = credentialsConfigured();
+    if (configurationReady && !startHttpWorker(apiBaseUrl.c_str())) {
+      configurationReady = false;
+      Serial.println("[ERROR] Could not start network worker");
+    }
+  }
+  if (configurationReady && !ROMI_BENCH_MODE) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(false);
     maintainWifi();
@@ -529,8 +572,10 @@ void loop() {
   readDebugCommands();
 #endif
   maintainWifi();
+  receiveNetworkResult();
   advanceDoor();
   acknowledgeCommand();
   pollCommands();
   refreshState();
+  delay(1);  // Let the HTTP worker and ESP32 system tasks run between GPIO ticks.
 }

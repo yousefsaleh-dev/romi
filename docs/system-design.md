@@ -6,6 +6,8 @@ ROMI is an MVP for one hospital, one entrance/door, and one administrator accoun
 
 The project provides a Next.js admin dashboard and voice simulator, authenticated API routes, Supabase Auth/Postgres, and Gemini Live speech-to-speech. The `firmware/esp32-romi` directory now contains an ESP32 DevKit V1 core firmware target and provisional pin map. Its audio codec path and physical actuator have not been verified on hardware.
 
+The implemented physical fallback is `/dashboard/kiosk`: browser audio with an operator-supplied device token in RAM, using the existing `kiosk` API flow and waiting for ESP32 acknowledgement. The separate simulator remains a virtual door flow. The Windows firmware launcher and Arabic field guide support offline bench tests and preparation before the event; neither substitutes for hardware verification.
+
 ## Architecture
 
 ```text

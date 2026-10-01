@@ -6,12 +6,16 @@ The server-side contracts exist for session creation, check-in, availability, bo
 
 ## What firmware must do
 
+For the current browser fallback, use `/dashboard/kiosk` after admin login and enter the device token. It uses the existing device-authenticated session/tool routes and waits for the ESP32 ACK through `/api/ai/door-status`; it never calls the simulation completion route. `/dashboard/simulation` cannot send a physical command. See the [Arabic independent operator guide](../firmware/esp32-romi/HACKATHON.md) for cached tools, offline bench mode, wiring and recovery.
+
 1. Store Wi-Fi credentials, `ROMI_DEVICE_TOKEN`, and the app base URL in an ignored local config or secure provisioning step; never store `GEMINI_API_KEY`, Supabase secret/publishable keys, admin credentials, or real patient data.
 2. Use the single GPIO33 button as the MVP start/cancel control: a debounced idle press starts, and an active press cancels. The current core firmware only toggles a local session state. For a future ESP32 audio client, each start must create a new UUID, call `POST /api/ai/session`, and keep the returned one-use token only in RAM. The fallback browser starts and ends its own voice session; the physical button cannot remotely control that browser with the current APIs.
 3. Connect to Gemini Live over a direct TLS WebSocket using the returned model/config/token. Send an initial short text instruction to greet the visitor in Egyptian Arabic (the server connection alone does not start the greeting). Then capture mono microphone frames, encode exactly as the negotiated Live API requires, receive audio output, and play it. All function calls go back to the corresponding `/api/ai/*` route with the same request ID and device bearer token.
 4. Track visitor speech/activity and close the Live context after 20 seconds of silence (count only while ROMI is not speaking), after ROMI calls the local `end_conversation` tool, or when the same physical button is pressed again. The end tool is a local lifecycle signal: do not send a tool response that starts another model turn. Cut microphone capture immediately; let already-received farewell audio finish, close Live, post usage once, erase token/audio/transcript/context from RAM, then return to idle. The next start gets a new UUID and a clean context; never mix visitors or reuse session state.
 5. Run a separate door-command poll loop using `GET /api/device/commands`. If command is null, do nothing. If an ID arrives, validate expiry, actuate once, verify a physical sensor/feedback signal, then POST the acknowledgement. Report specific safe error codes on failure.
 6. Bound memory/queue sizes, use TLS certificate validation, watchdog/reconnect/backoff, network timeouts, and prevent repeated actuation if the same command ID is delivered again. Keep the door physically safe on brownout/reset and provide manual/emergency override.
+
+The current core uses a separate FreeRTOS HTTP worker, one outstanding request, a 2048-byte response bound and a 16-ID persistent duplicate history. GPIO and servo timing continue while HTTP waits. `romi.ps1` selects bench (offline), demo (timed movement verification) or safe (real feedback required for success); certificate bypass is an explicit demo-only launcher option. Audio stays disabled in each profile.
 
 ## Expected exchange
 

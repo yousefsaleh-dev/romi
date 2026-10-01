@@ -4,8 +4,9 @@ import { GoogleGenAI } from "@google/genai";
 import { AudioLines, CircleStop, DoorOpen, Mic, Radio, ShieldCheck, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { waitForDeviceDoor, type DeviceDoorResult } from "@/lib/ai/device-door";
 
-type Phase = "idle" | "connecting" | "listening" | "speaking" | "checking" | "error";
+type Phase = "idle" | "connecting" | "listening" | "speaking" | "checking" | "closing" | "error";
 type TranscriptSpeaker = "patient" | "romi";
 type FrequencyBins = Uint8Array<ArrayBuffer>;
 type AudioAnalyzers = { microphone: AnalyserNode; romi: AnalyserNode } | null;
@@ -16,7 +17,7 @@ type SessionInfo = { token: string; model: string; request_id: string; config: R
 type GeminiFunctionCall = { id?: string; name?: string; args?: Record<string, unknown> };
 
 const phaseLabels: Record<Phase, string> = {
-  idle: "جاهز للتجربة", connecting: "جاري الاتصال", listening: "رومي بتسمعك", speaking: "رومي بترد عليك", checking: "جاري فحص كود الحجز", error: "حصلت مشكلة",
+  idle: "جاهز للتجربة", connecting: "جاري الاتصال", listening: "رومي بتسمعك", speaking: "رومي بترد عليك", checking: "جاري فحص كود الحجز", closing: "جاري إنهاء الجلسة", error: "حصلت مشكلة",
 };
 
 function cairoDateTime(value: string) {
@@ -41,8 +42,10 @@ async function confirmSimulatedDoorOpening(commandId: string, requestId: string)
   return statusPayload.command?.status === "opened";
 }
 
-export function LiveSimulation({ configured }: { configured: boolean }) {
+export function LiveSimulation({ configured, mode = "simulation" }: { configured: boolean; mode?: "simulation" | "device" }) {
   const router = useRouter();
+  const physicalDoor = mode === "device";
+  const [deviceToken, setDeviceToken] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [caption, setCaption] = useState("");
   const [captionSpeaker, setCaptionSpeaker] = useState<TranscriptSpeaker | null>(null);
@@ -51,6 +54,11 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
   const [items, setItems] = useState<LogItem[]>([]);
   const [error, setError] = useState("");
   const sessionRef = useRef<Awaited<ReturnType<GoogleGenAI["live"]["connect"]>> | null>(null);
+  const apiHeadersRef = useRef<Record<string, string>>({ "Content-Type": "application/json" });
+  const requestsRef = useRef<AbortController | null>(null);
+  const closingRef = useRef(false);
+  const startingRef = useRef(false);
+  const lifecycleRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const playbackRef = useRef(0);
@@ -96,6 +104,15 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
   }
 
   const stop = useCallback(async (finalPhase: Phase = "idle") => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    lifecycleRef.current += 1;
+    setPhase("closing");
+    requestsRef.current?.abort();
+    const requestId = requestIdRef.current;
+    requestIdRef.current = null;
+    const apiHeaders = apiHeadersRef.current;
+    apiHeadersRef.current = { "Content-Type": "application/json" };
     sessionRef.current?.close();
     sessionRef.current = null;
     if (maxDurationRef.current) window.clearTimeout(maxDurationRef.current);
@@ -110,26 +127,27 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
     if (context) await context.close().catch(() => undefined);
     audioContextRef.current = null;
     setAudioAnalyzers(null);
-    setPhase(finalPhase);
-    const requestId = requestIdRef.current;
     if (requestId) {
       const usage = usageRef.current;
-      const response = await fetch("/api/ai/usage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      const response = await fetch("/api/ai/usage", { method: "POST", headers: apiHeaders, signal: AbortSignal.timeout(5000), body: JSON.stringify({
         request_id: requestId, text_input_tokens: usage.textInput, text_output_tokens: usage.textOutput,
         audio_input_tokens: usage.audioInput, audio_output_tokens: usage.audioOutput,
         latency_ms: firstResponseLatencyRef.current,
         outcome: finalPhase === "error" ? "provider_error" : outcomeRef.current,
-      }) });
-      if (response.ok) router.refresh();
+      }) }).catch(() => null);
+      if (response?.ok) router.refresh();
       else addItem({ label: "الاستخدام لم يُحفظ", detail: "تعذّر تسجيل تكلفة الجلسة؛ جرّب تحديث الصفحة", kind: "error" });
     }
-    requestIdRef.current = null;
     closeAfterFarewellRef.current = false;
     farewellTurnCompleteRef.current = false;
     busyRef.current = false;
+    closingRef.current = false;
+    setPhase(finalPhase);
   }, [addItem, router]);
 
   useEffect(() => () => {
+    lifecycleRef.current += 1;
+    requestsRef.current?.abort();
     if (maxDurationRef.current) window.clearTimeout(maxDurationRef.current);
     if (silenceCheckRef.current) window.clearInterval(silenceCheckRef.current);
     audioSourcesRef.current.forEach((source) => source.stop());
@@ -142,6 +160,15 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
   }, []);
 
   async function start() {
+    if (startingRef.current || closingRef.current || sessionRef.current) return;
+    if (physicalDoor && !deviceToken.trim()) { setError("أدخل توكن جهاز الاستقبال أولًا."); return; }
+    startingRef.current = true;
+    const generation = ++lifecycleRef.current;
+    const requests = new AbortController();
+    requestsRef.current = requests;
+    const apiHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (physicalDoor) apiHeaders.Authorization = `Bearer ${deviceToken.trim()}`;
+    apiHeadersRef.current = apiHeaders;
     setError(""); setCaption(""); setCaptionSpeaker(null); setCaptionSequence(0); setItems([]); setPhase("connecting");
     captionSpeakerRef.current = null;
     captionTextRef.current = "";
@@ -157,12 +184,18 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("افتح الموقع على localhost أو HTTPS واسمح باستخدام الميكروفون.");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      if (lifecycleRef.current !== generation) { stream.getTracks().forEach((track) => track.stop()); return; }
       streamRef.current = stream;
       const requestId = crypto.randomUUID();
-      const sessionResponse = await fetch("/api/ai/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request_id: requestId }) });
+      const sessionResponse = await fetch("/api/ai/session", { method: "POST", headers: apiHeaders, signal: requests.signal, body: JSON.stringify({ request_id: requestId }) });
       const sessionData = await sessionResponse.json() as SessionInfo & { error?: string };
       if (!sessionResponse.ok) throw new Error(sessionData.error ?? "تعذّر تجهيز جلسة AI.");
+      if (lifecycleRef.current !== generation) return;
       requestIdRef.current = requestId;
+      const confirmDoor = async (commandId: string): Promise<DeviceDoorResult> => {
+        if (physicalDoor) return waitForDeviceDoor(requestId, apiHeaders, requests.signal);
+        return await confirmSimulatedDoorOpening(commandId, requestId) ? "door_opened" : "door_failed";
+      };
       const context = new AudioContext();
       audioContextRef.current = context;
       await context.resume();
@@ -181,9 +214,10 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
       source.connect(processor); processor.connect(muted); muted.connect(context.destination);
       const ai = new GoogleGenAI({ apiKey: sessionData.token, httpOptions: { apiVersion: "v1beta" } });
       const session = await ai.live.connect({ model: sessionData.model, config: sessionData.config as never, callbacks: {
-        onopen: () => { connectedAtRef.current = Date.now(); setPhase("listening"); addItem({ label: "اتصلت الجلسة الصوتية", detail: "Gemini Live · صوت مباشر", kind: "info" }); },
-        onerror: (event) => { setError(event.message || "انقطع الاتصال بخدمة الصوت."); addItem({ label: "خطأ في الاتصال", detail: event.message || "تعذّر الاتصال بـ Gemini Live", kind: "error" }); void stop("error"); },
+        onopen: () => { if (lifecycleRef.current !== generation) return; connectedAtRef.current = Date.now(); setPhase("listening"); addItem({ label: "اتصلت الجلسة الصوتية", detail: "Gemini Live · صوت مباشر", kind: "info" }); },
+        onerror: (event) => { if (lifecycleRef.current !== generation) return; setError(event.message || "انقطع الاتصال بخدمة الصوت."); addItem({ label: "خطأ في الاتصال", detail: event.message || "تعذّر الاتصال بـ Gemini Live", kind: "error" }); void stop("error"); },
         onclose: (event) => {
+          if (lifecycleRef.current !== generation) return;
           if (!sessionRef.current) return;
           const disconnected = !event.wasClean;
           if (disconnected) setError("انقطع اتصال Gemini Live.");
@@ -191,6 +225,7 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
           void stop(disconnected ? "error" : "idle");
         },
         onmessage: async (message) => {
+          if (lifecycleRef.current !== generation) return;
           const usage = message.usageMetadata as { promptTokensDetails?: { modality?: string; tokenCount?: number }[]; responseTokensDetails?: { modality?: string; tokenCount?: number }[]; toolUsePromptTokensDetails?: { modality?: string; tokenCount?: number }[] } | undefined;
           for (const entry of [...(usage?.promptTokensDetails ?? []), ...(usage?.toolUsePromptTokensDetails ?? [])]) { if (entry.modality === "AUDIO") usageRef.current.audioInput += entry.tokenCount ?? 0; else usageRef.current.textInput += entry.tokenCount ?? 0; }
           for (const entry of usage?.responseTokensDetails ?? []) { if (entry.modality === "AUDIO") usageRef.current.audioOutput += entry.tokenCount ?? 0; else usageRef.current.textOutput += entry.tokenCount ?? 0; }
@@ -229,6 +264,7 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
               const player = audioContext.createBufferSource(); player.buffer = buffer; player.connect(romiAnalyser);
               audioSourcesRef.current.add(player);
               player.onended = () => {
+                if (lifecycleRef.current !== generation) return;
                 audioSourcesRef.current.delete(player);
                 if (audioSourcesRef.current.size === 0 && !busyRef.current && sessionRef.current) setPhase("listening");
                 if (audioSourcesRef.current.size === 0 && closeAfterFarewellRef.current && farewellTurnCompleteRef.current) {
@@ -245,24 +281,23 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
             busyRef.current = true; setPhase("checking");
             const responses: { id?: string; name?: string; response: Record<string, unknown> }[] = [];
             for (const call of functionCalls) {
+              if (lifecycleRef.current !== generation) return;
               try {
                 if (call.name === "check_in_booking" && typeof call.args?.booking_code === "string") {
                   const code = call.args.booking_code.replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x660)).replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x6f0));
                   addItem({ label: "الأداة: فحص الحجز", detail: `الخادم يتحقق من ${code.replace(/\d/g, "•")}`, kind: "tool" });
-                  const response = await fetch("/api/ai/check-in", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request_id: requestId, booking_code: code }) });
+                  const response = await fetch("/api/ai/check-in", { method: "POST", headers: apiHeaders, signal: requests.signal, body: JSON.stringify({ request_id: requestId, booking_code: code }) });
                   const payload = await response.json();
+                  if (lifecycleRef.current !== generation) return;
                   if (!response.ok) throw new Error(payload.error ?? "تعذّر التحقق.");
                   const attempt = payload.attempt;
                   let doorResult = attempt.reason;
                   if (attempt.ok && attempt.door_command_id) {
-                    const opened = await confirmSimulatedDoorOpening(attempt.door_command_id, requestId);
-                    if (opened) {
-                      doorResult = "door_opened";
-                      addItem({ label: "الباب اتفتح · محاكاة", detail: "", kind: "success" });
-                    } else {
-                      doorResult = "door_failed";
-                      addItem({ label: "الحجز صحيح · الباب لم يتأكد", detail: "", kind: "error" });
-                    }
+                    doorResult = await confirmDoor(attempt.door_command_id);
+                    if (lifecycleRef.current !== generation) return;
+                    addItem({ label: doorResult === "door_opened" ? (physicalDoor ? "ESP32 أكد فتح الباب" : "الباب اتفتح · محاكاة")
+                      : doorResult === "door_pending" ? "في انتظار تأكيد ESP32" : "الحجز صحيح · الباب لم يتأكد",
+                      detail: "", kind: doorResult === "door_opened" ? "success" : doorResult === "door_pending" ? "info" : "error" });
                   } else if (!attempt.ok) {
                     addItem({ label: "تعذّر قبول الحجز", detail: `سبب القرار: ${attempt.reason}`, kind: "error" });
                   }
@@ -273,8 +308,9 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
                   const dateTo = call.args?.date_to;
                   if (typeof department !== "string" || typeof dateFrom !== "string" || typeof dateTo !== "string") throw new Error("حدد القسم والفترة المطلوبة.");
                   addItem({ label: "الأداة: بحث عن مواعيد", detail: `${dateFrom} إلى ${dateTo}`, kind: "tool" });
-                  const response = await fetch("/api/ai/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request_id: requestId, department_slug: department, date_from: dateFrom, date_to: dateTo }) });
+                  const response = await fetch("/api/ai/availability", { method: "POST", headers: apiHeaders, signal: requests.signal, body: JSON.stringify({ request_id: requestId, department_slug: department, date_from: dateFrom, date_to: dateTo }) });
                   const payload = await response.json();
+                  if (lifecycleRef.current !== generation) return;
                   if (!response.ok) throw new Error(payload.error ?? "تعذّر البحث عن المواعيد.");
                   const slots = (payload.slots ?? []).map((slot: { department_name: string; starts_at: string; duration_minutes: number; remaining_capacity: number; can_enter_now: boolean; entry_window_opens_at: string; entry_window_closes_at: string; checked_at: string }) => ({
                     appointment_at: slot.starts_at,
@@ -296,15 +332,18 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
                   const openDoorNow = call.args?.open_door_now === true;
                   if (typeof patientName !== "string" || typeof department !== "string" || typeof appointmentAt !== "string") throw new Error("اسم صاحب الحجز والقسم والموعد المختار مطلوبين.");
                   addItem({ label: "رومي بتسجل الحجز", detail: "", kind: "tool" });
-                  const response = await fetch("/api/ai/create-booking", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request_id: requestId, patient_name: patientName, department_slug: department, appointment_at: appointmentAt, open_door_now: openDoorNow }) });
+                  const response = await fetch("/api/ai/create-booking", { method: "POST", headers: apiHeaders, signal: requests.signal, body: JSON.stringify({ request_id: requestId, patient_name: patientName, department_slug: department, appointment_at: appointmentAt, open_door_now: openDoorNow }) });
                   const payload = await response.json();
+                  if (lifecycleRef.current !== generation) return;
                   if (!response.ok && !payload.booking) throw new Error(payload.error ?? "تعذّر إنشاء الحجز.");
                   const booking = payload.booking;
                   let doorResult = booking.reason ?? "booking_created_future";
                   if (booking.ok && booking.door_command_id) {
-                    const opened = await confirmSimulatedDoorOpening(booking.door_command_id, requestId);
-                    doorResult = opened ? "door_opened" : "door_failed";
-                    addItem({ label: opened ? "الباب اتفتح · محاكاة" : "الحجز اتسجل · الباب لم يتأكد", detail: "", kind: opened ? "success" : "error" });
+                    doorResult = await confirmDoor(booking.door_command_id);
+                    if (lifecycleRef.current !== generation) return;
+                    addItem({ label: doorResult === "door_opened" ? (physicalDoor ? "ESP32 أكد فتح الباب" : "الباب اتفتح · محاكاة")
+                      : doorResult === "door_pending" ? "في انتظار تأكيد ESP32" : "الحجز اتسجل · الباب لم يتأكد",
+                      detail: "", kind: doorResult === "door_opened" ? "success" : doorResult === "door_pending" ? "info" : "error" });
                   } else if (booking.ok) {
                     addItem({ label: "الحجز اتسجل", detail: "موعد لاحق؛ لم يصدر أمر للباب", kind: "success" });
                   } else {
@@ -327,10 +366,11 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
                   const appointmentId = call.args?.appointment_id;
                   if (typeof appointmentId !== "string") throw new Error("معرّف الحجز مطلوب.");
                   const response = await fetch("/api/ai/entry-status", {
-                    method: "POST", headers: { "Content-Type": "application/json" },
+                    method: "POST", headers: apiHeaders, signal: requests.signal,
                     body: JSON.stringify({ request_id: requestId, appointment_id: appointmentId }),
                   });
                   const payload = await response.json();
+                  if (lifecycleRef.current !== generation) return;
                   if (!response.ok) throw new Error(payload.error ?? "تعذّر فحص موعد الدخول.");
                   addItem({ label: "فحص موعد الدخول الحالي", detail: payload.entry_message_ar, kind: payload.can_enter_now ? "success" : "info" });
                   responses.push({ id: call.id, name: call.name, response: payload });
@@ -345,11 +385,13 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
                   responses.push({ id: call.id, name: call.name, response: { result: "unsupported_tool" } });
                 }
               } catch (toolError) {
+                if (lifecycleRef.current !== generation) return;
                 const errorText = toolError instanceof Error ? toolError.message : "فشل تنفيذ الطلب.";
                 addItem({ label: "تعذّر تنفيذ الطلب", detail: errorText, kind: "error" });
                 responses.push({ id: call.id, name: call.name, response: { result: "error", message: errorText } });
               }
             }
+            if (lifecycleRef.current !== generation) return;
             lastActivityAtRef.current = Date.now();
             if (responses.length) sessionRef.current?.sendToolResponse({ functionResponses: responses as never });
             if (functionCalls.some((call) => call.name === "end_conversation")) {
@@ -366,6 +408,7 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
           }
         },
       } });
+      if (lifecycleRef.current !== generation) { session.close(); return; }
       sessionRef.current = session;
       session.sendRealtimeInput({ text: "ابدئي الكلام بتحية مصرية قصيرة، وعرّفي بنفسك باسم رومي." });
       maxDurationRef.current = window.setTimeout(() => {
@@ -373,7 +416,7 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
         void stop();
       }, 12 * 60_000);
       processor.onaudioprocess = (event) => {
-        if (!sessionRef.current) return;
+        if (lifecycleRef.current !== generation || !sessionRef.current) return;
         const input = event.inputBuffer.getChannelData(0);
         let energy = 0;
         for (const sample of input) energy += sample * sample;
@@ -401,9 +444,12 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
         void stop();
       }, 500);
     } catch (startError) {
+      if (lifecycleRef.current !== generation) return;
       const message = startError instanceof Error ? startError.message : "تعذّر تشغيل المحاكاة.";
       setError(message); setPhase("error"); addItem({ label: "تعذّر بدء المحاكاة", detail: message, kind: "error" });
       await stop("error");
+    } finally {
+      startingRef.current = false;
     }
   }
 
@@ -427,10 +473,17 @@ export function LiveSimulation({ configured }: { configured: boolean }) {
             <p className="caption-placeholder">{phase === "idle" ? "ابدأ التجربة، واتكلم كأنك عند بوابة المستشفى." : phase === "connecting" ? "بنجهز الاتصال الصوتي…" : "سامعاك، اتفضل."}</p>
           )}
         </div>
-        {!configured && <div className="notice simulation-notice">أضف GEMINI_API_KEY في <code>.env.local</code> ثم أعد تشغيل الموقع لتفعيل التجربة الصوتية.</div>}
+        {physicalDoor && <div className="notice simulation-notice">
+          <label className="field" htmlFor="device-token">توكن جهاز الاستقبال
+            <input id="device-token" type="password" autoComplete="off" value={deviceToken}
+              disabled={phase !== "idle" && phase !== "error"} onChange={(event) => setDeviceToken(event.target.value)} />
+          </label>
+          <p>أدخل نفس توكن ESP32. يظل في ذاكرة الصفحة فقط. هذه الجلسة يمكنها إصدار أمر للباب الفعلي.</p>
+        </div>}
+        {!configured && <div className="notice simulation-notice">مفتاح خدمة الصوت غير مُعدّ على الخادم.</div>}
         {error && <p className="simulation-error" role="alert">{error}</p>}
         <footer className="simulation-controls">
-          {phase === "idle" || phase === "error" ? <button className="button simulation-start" type="button" disabled={!configured} onClick={() => void start()}><Mic aria-hidden="true" />ابدأ المحاكاة</button> : <button className="button simulation-stop" type="button" onClick={() => void stop()}><CircleStop aria-hidden="true" />إنهاء الجلسة</button>}
+          {phase === "idle" || phase === "error" ? <button className="button simulation-start" type="button" disabled={!configured || (physicalDoor && !deviceToken.trim())} onClick={() => void start()}><Mic aria-hidden="true" />{physicalDoor ? "ابدأ الاستقبال" : "ابدأ المحاكاة"}</button> : <button className="button simulation-stop" type="button" disabled={phase === "closing"} onClick={() => void stop()}><CircleStop aria-hidden="true" />إنهاء الجلسة</button>}
         </footer>
       </div>
       <aside className="simulation-side-panel">

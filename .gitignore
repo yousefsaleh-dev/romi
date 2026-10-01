@@ -7,6 +7,8 @@ node_modules/
 dist/
 .pio/
 firmware/esp32-romi/include/romi_secrets.h
+firmware/esp32-romi/include/romi_local.h
+.tools/
 coverage/
 tmp/
 *.tsbuildinfo

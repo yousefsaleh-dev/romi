@@ -7,6 +7,7 @@ ROMI is a single-hospital MVP for voice-guided appointment booking/check-in and 
 - `src/` — Next.js admin dashboard and server API routes.
 - `supabase/migrations/` — schema, access policies, and device command queue.
 - `firmware/esp32-romi/` — ESP32 firmware workspace.
+- `firmware/esp32-romi/HACKATHON.md` — Arabic standalone setup, wiring, commands, troubleshooting and fallback guide.
 - `docs/reference/` — original presentation, diagrams, and wireframe.
 - `docs/system-design.md` — architecture, data model, business rules, and AI flow.
 - `docs/api.md` — HTTP API contracts and authentication.
@@ -31,3 +32,9 @@ Deploy the Next.js app to Vercel or another Node.js host and add the same server
 Run `pnpm lint`, `pnpm typecheck`, and `pnpm build` before a demo. `pnpm smoke:live` checks Gemini Live with a synthetic greeting and the `end_conversation` tool. With a running local server on port 3100 and a nonempty `ROMI_DEVICE_TOKEN`, `pnpm smoke:api` checks the device HTTP contract with a synthetic future booking and deletes that test booking afterward. Do not run the API smoke test against production without reviewing its synthetic database writes.
 
 After deploying an isolated staging instance to Vercel, set `ROMI_TEST_BASE_URL` to its HTTPS URL and run `pnpm smoke:device:external` for device auth and rejection contracts. The full synthetic command claim/ACK probe requires `ROMI_TEST_ALLOW_DOOR_COMMAND=YES` and `ROMI_TEST_ISOLATED_DB=YES`; it creates and cleans up a staging booking and must not run against a real door queue.
+
+## Browser voice with the physical ESP32 door
+
+Use `/dashboard/kiosk` after admin login and enter the same device token provisioned on the ESP32. It creates device-authenticated AI sessions through the existing routes and waits for the board's physical command ACK. The token is held in page memory only. `/dashboard/simulation` remains a simulated door flow and cannot operate the physical queue. The physical button currently toggles a local firmware state; start/stop browser voice using the page controls.
+
+On Windows, run `./firmware/esp32-romi/romi.ps1 prepare` on the competition laptop before the event, then follow [the independent field guide](firmware/esp32-romi/HACKATHON.md). `pnpm test:device-door` verifies browser status handling rejects simulated/failed/malformed confirmations. These tests and successful builds do not prove hardware motion or a deployed API exchange.

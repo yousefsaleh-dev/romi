@@ -2,11 +2,25 @@
 
 #include <Arduino.h>
 
-// Change the hardware and demo settings here before flashing a different kit.
+// The launcher writes ignored local mode overrides; pins and timings stay here.
+#if __has_include("romi_local.h")
+#include "romi_local.h"
+#endif
+#ifndef ROMI_ENABLE_AUDIO
 #define ROMI_ENABLE_AUDIO 0
+#endif
+#ifndef ROMI_DEMO_ASSUME_SERVO_MOVED
 #define ROMI_DEMO_ASSUME_SERVO_MOVED 0
+#endif
+#ifndef ROMI_HACKATHON_DEBUG_MODE
 #define ROMI_HACKATHON_DEBUG_MODE 0
+#endif
+#ifndef ROMI_ALLOW_INSECURE_TLS_FOR_DEMO
 #define ROMI_ALLOW_INSECURE_TLS_FOR_DEMO 0
+#endif
+#ifndef ROMI_BENCH_MODE
+#define ROMI_BENCH_MODE 0
+#endif
 
 namespace romi {
 static constexpr uint8_t SERVO_PIN = 23;
@@ -34,10 +48,15 @@ static constexpr uint32_t API_MAX_POLL_MS = 10000;
 static constexpr uint32_t API_BACKOFF_MAX_MS = 30000;
 static constexpr uint32_t API_CONNECT_TIMEOUT_MS = 2000;
 static constexpr uint32_t API_READ_TIMEOUT_MS = 2500;
+static constexpr uint32_t TLS_HANDSHAKE_TIMEOUT_SECONDS = 5;
 static constexpr uint32_t COMMAND_EXPIRY_GUARD_MS = 6000;
+// More than the number of full servo cycles possible during a 20-second command TTL.
+static constexpr size_t RECENT_COMMAND_COUNT = 16;
 
 static_assert(DOOR_CLOSED_ANGLE >= 0 && DOOR_CLOSED_ANGLE <= 180, "Invalid closed angle");
 static_assert(DOOR_OPEN_ANGLE >= 0 && DOOR_OPEN_ANGLE <= 180, "Invalid open angle");
 static_assert(SERVO_MOVE_WAIT_MS * 2 + SERVO_OPEN_HOLD_MS + COMMAND_EXPIRY_GUARD_MS < 20000,
               "Door cycle is too slow for the server's 20-second command lifetime");
+static_assert((SERVO_MOVE_WAIT_MS * 2 + SERVO_OPEN_HOLD_MS) * RECENT_COMMAND_COUNT > 20000,
+              "Duplicate history must cover every servo cycle within command lifetime");
 }  // namespace romi

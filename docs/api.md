@@ -7,6 +7,8 @@ All endpoints are same-origin Next.js routes. JSON errors use `{ "error": "..." 
 - Admin routes: authenticated Supabase session for the one configured admin email/role. Dashboard requests use the browser's Supabase session cookies.
 - Device routes: `Authorization: Bearer <ROMI_DEVICE_TOKEN>`; comparison is timing-safe. The ESP32 token is separate from all provider/database keys.
 - AI routes accept either an admin session (simulator) or device bearer token (kiosk); each `request_id` is bound to source `simulation` or `kiosk` so one cannot use the other's request.
+
+The browser page `/dashboard/kiosk` uses an operator-entered device token in page memory with these existing routes, providing browser voice for the physical ESP32 queue. It reads `/api/ai/door-status`; it does not claim or acknowledge physical commands. `/dashboard/simulation` continues to use the admin simulation flow.
 - Do not expose the Supabase service key. API handlers use it server-side to run privileged database transactions.
 
 ## AI routes
