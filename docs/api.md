@@ -65,7 +65,7 @@ Requires device bearer token. Request: `{ "command_id": "<uuid>", "opened": true
 
 ### Device session startup
 
-The device may request `POST /api/ai/session` with the same request body and bearer header. The route returns an ephemeral Gemini credential/config; keep it only in RAM, connect once, and discard it at conversation end. No firmware currently implements this handshake or the Gemini Live WebSocket protocol.
+The device may request `POST /api/ai/session` with the same request body and bearer header. The route returns an ephemeral Gemini credential/config; keep it only in RAM, connect once, and discard it at conversation end. The full ESP32 firmware implements this handshake and the direct Gemini Live WebSocket protocol; it builds, but still needs hardware verification. Audio-disabled core uses the phone browser fallback for voice.
 
 ## Admin and simulation routes
 

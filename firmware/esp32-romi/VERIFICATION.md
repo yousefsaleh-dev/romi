@@ -48,6 +48,8 @@ The probe accesses Gemini only: no Supabase, patient data or door. It verifies a
 
 ## Changed files
 
+**Post-migration deployment retest — 2026-10-02:** after the owner applied migration 0007, six door-only deployed protocol groups passed (exit 0), including retry reservation, positive ACK → checked_in, duplicate ACK and consumed-code rejection. Seeded sessions isolate this check from Gemini. Provisioning/voice and physical hardware remain unverified by this run. The earlier remote-migration blocker is resolved.
+
 Added: `include/romi_audio.h`, `romi_audio_io.h`, `romi_live_protocol.h`, `romi_gemini_ca.h`; `src/romi_audio_io.cpp`, `romi_live.cpp`; `scripts/websocket_limits.py`; `STANDALONE.md`; repository `scripts/esp32-live-wire-smoke.mjs`.
 
 Updated: `src/main.cpp`, `romi_http.cpp`; `include/romi_config.h`, `romi_http.h`, `romi_secrets.example.h`; `platformio.ini`, `romi.ps1`; package scripts; firmware README/HACKATHON/this record; root README and API/architecture/ESP32/system-design docs. The separate earlier owner-requested configuration commit contains `.env.local`, `ROMI.zip` and ignore changes.

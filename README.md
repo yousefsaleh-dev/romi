@@ -27,7 +27,7 @@ AI transcripts and audio are not stored. AI request counts, modality-separated t
 
 ## Deployment
 
-Current deployment: [romi-deci.vercel.app](https://romi-deci.vercel.app). External device auth tests pass; current Gemini authentication and the unapplied SQL retry fix block a complete pass. See [verified results and next steps](docs/deployment-device-tests.md).
+Current deployment: [romi-deci.vercel.app](https://romi-deci.vercel.app). External auth and six door-only protocol groups pass after migration 0007. Gemini authentication failed in the last full run and still needs a successful retest. See [verified results and next steps](docs/deployment-device-tests.md).
 
 Deploy the Next.js app to Vercel or another Node.js host and add the same server environment variables there. Apply migrations to the Supabase project first. The owner explicitly requested tracking configuration secrets and made this repository public. The Google-key push exception was approved, and the push succeeded. Keep Gemini/Supabase server keys out of ESP32 firmware. Physical door opening requires firmware to claim commands and acknowledge the actuator result. The firmware's demo flag may treat timed servo movement as success; real access control requires a door-position sensor. See [the device integration checklist](docs/esp32-integration.md) before wiring.
 
