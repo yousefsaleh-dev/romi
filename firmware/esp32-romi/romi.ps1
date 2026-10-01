@@ -226,7 +226,8 @@ function Show-Menu {
     Write-Host '5 flash    : flash standalone voice + door (mic/amplifier required)'
     Write-Host '6 monitor  : open live logs'
     Write-Host '7 audio test: flash offline mic/speaker diagnostics (M/A)'
-    $choice = Read-Host 'Choose 1-7'
+    Write-Host '8 phone fallback: flash door controller; phone provides voice'
+    $choice = Read-Host 'Choose 1-8'
     switch ($choice) {
         '1' { $script:Action = 'prepare' }
         '2' { $script:Action = 'configure' }
@@ -235,6 +236,7 @@ function Show-Menu {
         '5' { $script:Action = 'flash'; $script:Mode = 'full' }
         '6' { $script:Action = 'monitor' }
         '7' { $script:Action = 'test'; $script:Mode = 'audio-bench' }
+        '8' { $script:Action = 'flash'; $script:Mode = 'demo' }
         default { throw 'Invalid menu choice.' }
     }
 }

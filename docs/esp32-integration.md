@@ -1,5 +1,7 @@
 # ESP32 integration and verification plan
 
+New to hardware? Start with [the Arabic first-time guide](hardware-first-time.md): what the terminal menu is, where to type Wi-Fi/token settings, USB flashing, standalone power, and the complete phone fallback if audio parts are absent.
+
 ## What is ready
 
 The server-side contracts exist for session creation, check-in, availability, booking creation, door-command polling, acknowledgement, door status, and usage finalization. Device routes use a server-side bearer token. The database owns booking state, conflict prevention, entry-window decisions, and command state. The PlatformIO core firmware targets ESP32 DevKit V1 and implements GPIO, Wi-Fi, HTTPS command polling, servo timing, and ACK handling. Both core and full audio profiles build; a real Gemini raw-protocol probe passed. Neither has been flashed or tested on hardware. Pin assignments remain provisional until the competition kit is confirmed. See [firmware setup](../firmware/esp32-romi/README.md).

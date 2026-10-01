@@ -35,6 +35,8 @@ After deploying an isolated staging instance to Vercel, set `ROMI_TEST_BASE_URL`
 
 ## Standalone ESP32 voice and phone fallback
 
+Start with [أول مرة هاردوير: القائمة، USB، الواي فاي، وبديل الموبايل](docs/hardware-first-time.md). It includes the exact terminal menu and both equipment scenarios.
+
 Use `/dashboard/kiosk` after admin login and enter the same device token provisioned on the ESP32. It creates device-authenticated AI sessions through the existing routes and waits for the board's physical command ACK. The token is held in page memory only. `/dashboard/simulation` remains a simulated door flow and cannot operate the physical queue. This is Plan B on a phone if audio parts are absent; start/stop using the page controls. Plan A uses native INMP441/MAX98357A audio on the ESP32: GPIO33 starts/cancels sessions directly. See [standalone wiring and commands](firmware/esp32-romi/STANDALONE.md).
 
 On Windows, run `./firmware/esp32-romi/romi.ps1 prepare` on the preparation PC before the event, then follow [the independent field guide](firmware/esp32-romi/HACKATHON.md). `pnpm test:device-door` verifies browser status handling rejects simulated/failed/malformed confirmations. These tests and successful builds do not prove hardware motion or a deployed API exchange.
