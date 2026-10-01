@@ -32,7 +32,7 @@ The probe accesses Gemini only: no Supabase, patient data or door. It verifies a
 - Next.js production build passed for the existing kiosk implementation before native firmware was added. Native work changed package scripts and firmware/docs, not web/backend routes.
 - Launcher diagnostics run in PowerShell 7 and Windows PowerShell 5.1. Only Intel SOL COM3 was present; it is correctly excluded from USB board selection.
 - Trusted root discovery previously verified against public vercel.com in both PowerShell versions. This tests the helper, not ROMI's eventual deployment.
-- No real device settings header is present. No Gemini/Supabase server secret is embedded in firmware. The owner requested tracking environment/archive/device settings in a private repo; GitHub blocks the real Google key push until an owner exception. Caches and local mode flags stay ignored.
+- No real device settings header is present. No Gemini/Supabase server secret is embedded in firmware. The owner requested tracking environment/archive/device settings, made the repository public and approved the Google-key exception. The push succeeded on 2026-10-02. Caches and local mode flags stay ignored.
 
 ## Implemented versus still unfinished
 
@@ -42,14 +42,14 @@ The probe accesses Gemini only: no Supabase, patient data or door. It verifies a
 
 **Needs real hardware:** I2S channel ordering/gain/output levels, microphone/speaker quality, half duplex operation, power/current spikes, servo angles, GPIO behavior under network stalls, embedded TLS/free heap, reconnect/brownout/reset and a complete physical button-to-voice-to-door cycle. No ESP32 USB board is available here; nothing was flashed.
 
-**Needs deployment:** ROMI is not yet on Vercel. The external device API smoke script is ready but unexecuted. Its gated command/ACK cycle consumes commands and requires an isolated staging DB with physical actuator disconnected. Do not treat the Gemini probe as verification of ROMI's deployed APIs.
+**Deployment update — 2026-10-02:** ROMI now responds at https://romi-deci.vercel.app. External authentication/rejection smoke passed. The full deployed probe failed on session creation (HTTP 502); direct Google authentication also failed (401 ACCESS_TOKEN_TYPE_UNSUPPORTED). A separate door-only test with seeded synthetic sessions verified guards/claim/failure/TTL, but exposed an old-expired-command bug that releases a new retry's booking reservation. Migration 0007 fixes this and passed local PostgreSQL regression checks; it is not yet applied remotely (Supabase CLI 403). No complete deployed voice/door pass is claimed. See [actual deployment results](../../docs/deployment-device-tests.md). The older passing Gemini probe above is historical and does not prove the current key works.
 
-**Other limits:** different ESP32 families/components need board/pin/driver review. Native audio has no echo cancellation and pauses capture during playback. API response bound is 32 KiB, so long availability ranges can fail explicitly. The backend does not redeliver claimed `sent` commands after restart. This work did not change backend routes, SQL or authentication.
+**Other limits:** different ESP32 families/components need board/pin/driver review. Native audio has no echo cancellation and pauses capture during playback. API response bound is 32 KiB, so long availability ranges can fail explicitly. The backend does not redeliver claimed `sent` commands after restart. Native firmware work did not change backend routes or authentication; later deployment testing added the narrowly scoped SQL fix described above.
 
 ## Changed files
 
 Added: `include/romi_audio.h`, `romi_audio_io.h`, `romi_live_protocol.h`, `romi_gemini_ca.h`; `src/romi_audio_io.cpp`, `romi_live.cpp`; `scripts/websocket_limits.py`; `STANDALONE.md`; repository `scripts/esp32-live-wire-smoke.mjs`.
 
-Updated: `src/main.cpp`, `romi_http.cpp`; `include/romi_config.h`, `romi_http.h`, `romi_secrets.example.h`; `platformio.ini`, `romi.ps1`; package scripts; firmware README/HACKATHON/this record; root README and API/architecture/ESP32/system-design docs. The separate earlier owner-requested private-configuration commit contains `.env.local`, `ROMI.zip` and ignore changes.
+Updated: `src/main.cpp`, `romi_http.cpp`; `include/romi_config.h`, `romi_http.h`, `romi_secrets.example.h`; `platformio.ini`, `romi.ps1`; package scripts; firmware README/HACKATHON/this record; root README and API/architecture/ESP32/system-design docs. The separate earlier owner-requested configuration commit contains `.env.local`, `ROMI.zip` and ignore changes.
 
 Follow [the plain Arabic steps](STANDALONE.md) and [recovery guide](HACKATHON.md).

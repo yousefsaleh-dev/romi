@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:device-door": "node --test scripts/device-door.test.mjs",
     "smoke:esp32:live": "node --env-file=.env.local scripts/esp32-live-wire-smoke.mjs",
+    "smoke:esp32:deployed": "node --env-file=.env.local scripts/esp32-deployment-smoke.mjs",
     "smoke:live": "node --env-file=.env.local scripts/gemini-live-smoke.mjs",
     "smoke:api": "node --env-file=.env.local scripts/api-contract-smoke.mjs",
     "smoke:device:external": "node --env-file=.env.local scripts/device-external-smoke.mjs"

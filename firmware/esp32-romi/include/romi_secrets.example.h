@@ -1,6 +1,6 @@
 #pragma once
 
-// Copy to romi_secrets.h or use romi.ps1 configure. The owner requested private-repo storage.
+// Copy to romi_secrets.h or use romi.ps1 configure. The owner requested repository storage.
 static constexpr char ROMI_WIFI_SSID[] = "REPLACE_WITH_WIFI_NAME";
 static constexpr char ROMI_WIFI_PASSWORD[] = "REPLACE_WITH_WIFI_PASSWORD";
 static constexpr char ROMI_API_BASE_URL[] = "https://YOUR_DEPLOYED_HOST";

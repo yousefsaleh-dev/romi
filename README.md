@@ -27,13 +27,17 @@ AI transcripts and audio are not stored. AI request counts, modality-separated t
 
 ## Deployment
 
-Deploy the Next.js app to Vercel or another Node.js host and add the same server environment variables there. Apply migrations to the Supabase project first. The owner has requested secrets in this private GitHub repository; GitHub push protection may require an owner exception. Keep Gemini/Supabase server keys out of ESP32 firmware. Physical door opening requires firmware to claim commands and acknowledge the actuator result. The firmware's demo flag may treat timed servo movement as success; real access control requires a door-position sensor. See [the device integration checklist](docs/esp32-integration.md) before wiring.
+Current deployment: [romi-deci.vercel.app](https://romi-deci.vercel.app). External device auth tests pass; current Gemini authentication and the unapplied SQL retry fix block a complete pass. See [verified results and next steps](docs/deployment-device-tests.md).
+
+Deploy the Next.js app to Vercel or another Node.js host and add the same server environment variables there. Apply migrations to the Supabase project first. The owner explicitly requested tracking configuration secrets and made this repository public. The Google-key push exception was approved, and the push succeeded. Keep Gemini/Supabase server keys out of ESP32 firmware. Physical door opening requires firmware to claim commands and acknowledge the actuator result. The firmware's demo flag may treat timed servo movement as success; real access control requires a door-position sensor. See [the device integration checklist](docs/esp32-integration.md) before wiring.
 
 Run `pnpm lint`, `pnpm typecheck`, and `pnpm build` before a demo. `pnpm smoke:live` checks Gemini Live with a synthetic greeting and the `end_conversation` tool. With a running local server on port 3100 and a nonempty `ROMI_DEVICE_TOKEN`, `pnpm smoke:api` checks the device HTTP contract with a synthetic future booking and deletes that test booking afterward. Do not run the API smoke test against production without reviewing its synthetic database writes.
 
 After deploying an isolated staging instance to Vercel, set `ROMI_TEST_BASE_URL` to its HTTPS URL and run `pnpm smoke:device:external` for device auth and rejection contracts. The full synthetic command claim/ACK probe requires `ROMI_TEST_ALLOW_DOOR_COMMAND=YES` and `ROMI_TEST_ISOLATED_DB=YES`; it creates and cleans up a staging booking and must not run against a real door queue.
 
 ## Standalone ESP32 voice and phone fallback
+
+For a deployed server, see [ESP32 protocol tests](docs/deployment-device-tests.md). `pnpm smoke:esp32:deployed` exercises synthetic visitor/booking/command/ACK and real Gemini wire traffic; physical hardware remains a separate check.
 
 Start with [أول مرة هاردوير: القائمة، USB، الواي فاي، وبديل الموبايل](docs/hardware-first-time.md). It includes the exact terminal menu and both equipment scenarios.
 
