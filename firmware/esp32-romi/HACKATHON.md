@@ -4,9 +4,9 @@
 
 كود ESP32 بيتحول لملف بواسطة **build**، وبيتكتب في ذاكرة البورد بكابل USB بواسطة **flash / upload**. بعد كده البورد تشغّله بنفسها كل ما تتوصل بالكهرباء. **Serial Monitor** هو شاشة الـlogs بتاعتها على الكمبيوتر.
 
-اسم الواي فاي وكلمة السر ورابط الموقع وتوكن الجهاز بنكتبهم في إعدادات محلية، وبعدها flash. تغيير الواي فاي يحتاج configure ثم flash تاني. التوكن هو نفس `ROMI_DEVICE_TOKEN` على Vercel؛ مفيش Gemini أو Supabase secrets على البورد.
+رابط الموقع وتوكن الجهاز وشهادة HTTPS جاهزين في `include/romi_secrets.h` المرفوع على GitHub. أول flash يسأل عن اسم Wi-Fi 2.4 GHz وكلمة السر فقط. تغيير الواي فاي بعد ذلك: اختيار 2 أو `romi.ps1 wifi` ثم flash تاني. التوكن هو نفس `ROMI_DEVICE_TOKEN` على Vercel؛ مفيش Gemini أو Supabase secrets على البورد.
 
-**Plan A هو ESP32 مستقلة بالصوت والزرار**. اتبع [STANDALONE.md](STANDALONE.md): wiring → audio-bench → configure → flash full → ضغطة زرار. الكمبيوتر للرفع والاختبار؛ بعد الرفع شاحن USB يكفي. هذا الملف فيه التحضير والأعطال وبديل الموبايل لو قطع الصوت ناقصة.
+**Plan A هو ESP32 مستقلة بالصوت والزرار**. اتبع [STANDALONE.md](STANDALONE.md): wiring → audio-bench → flash full (يطلب الواي فاي أول مرة) → ضغطة زرار. الكمبيوتر للرفع والاختبار؛ بعد الرفع شاحن USB يكفي. هذا الملف فيه التحضير والأعطال وبديل الموبايل لو قطع الصوت ناقصة.
 
 ## 1. جهّز الكمبيوتر قبل المسابقة
 
@@ -23,8 +23,8 @@
 Set-ExecutionPolicy -Scope Process Bypass
 ```
 
-- استخدم نفس الكمبيوتر ونفس حساب Windows في المسابقة. احتفظ بمجلد المشروع كاملًا، بما فيه `.tools` و`.pio`، وكاش `%USERPROFILE%\.platformio`. `clone` لوحده لا ينقل الإعدادات الخاصة أو الأدوات المحمّلة.
-- احتفظ بنسخة خاصة آمنة من `.env.local` و`include/romi_secrets.h` بعد إعدادها. المالك طلب رفع env/إعدادات الجهاز إلى repo خاص؛ GitHub قد يوقف المفتاح حتى يسمح المالك باستثناء. الملفات المحلية لا تنتقل بـclone قبل نجاح push.
+- استخدم نفس الكمبيوتر ونفس حساب Windows في المسابقة. احتفظ بمجلد المشروع كاملًا، بما فيه `.tools` و`.pio`، وكاش `%USERPROFILE%\.platformio`. `clone` ينقل إعدادات السيرفر الجاهزة، لكنه لا ينقل الأدوات المحمّلة أو إعدادات شبكة مسابقة لم تدخلها بعد.
+- إعدادات الجهاز وبيئة السيرفر مرفوعة بطلب المالك؛ الرابط والتوكن والشهادة لا تحتاج إعادة كتابتها يوم المسابقة. بعد دخول شبكة المسابقة أول مرة تُحفظ محليًا داخل header وتحتاج flash لتدخل البورد.
 - جهز كابلين USB **بيوصلوا بيانات**، hotspot موبايل 2.4 GHz، وتعريف USB المناسب محفوظ قبل المسابقة: [CP210x الرسمي](https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers) أو تعريف CH340/CH341 من WCH حسب الشريحة المكتوبة على البورد.
 - افتح الدليل ده أو اطبعه. لو تقدر تستعير ESP32 وservo قبل المسابقة، اختبر التوصيل مرة واحدة؛ نجاح build لا يثبت الكهرباء أو الحركة.
 
@@ -33,7 +33,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 بعد النشر وإعداد server env وتطبيق migrations على Supabase:
 
 ```powershell
-$env:ROMI_TEST_BASE_URL = 'https://YOUR-DEPLOYMENT.vercel.app'
+$env:ROMI_TEST_BASE_URL = 'https://romi-deci.vercel.app'
 pnpm smoke:device:external
 ```
 
@@ -48,7 +48,7 @@ pnpm smoke:device:external
 Remove-Item Env:ROMI_TEST_ISOLATED_DB, Env:ROMI_TEST_ALLOW_DOOR_COMMAND
 ```
 
-ده ينشئ جلسة وحجزًا تجريبيًا، يستقبل أمر الباب مثل ESP32، يرسل ACK صناعيًا، ويتأكد من تحديث الحجز وينظف بيانات التجربة. لا تشغله على طابور باب حقيقي؛ هو نفسه يستهلك الأمر. اختبار Vercel ينتظر deployment؛ لم يُنفّذ قبل النشر.
+ده ينشئ جلسة وحجزًا تجريبيًا، يستقبل أمر الباب مثل ESP32، يرسل ACK صناعيًا، ويتأكد من تحديث الحجز وينظف بيانات التجربة. لا تشغله على طابور باب حقيقي؛ هو نفسه يستهلك الأمر. نتائج الاختبار الحالي موثقة في [deployment-device-tests.md](../../docs/deployment-device-tests.md)، بما فيها الاختبار الكامل بعد إصلاح SQL والمفتاح.
 
 لو رجعت صفحة login من Vercel بدل JSON، استخدم deployment متاح للطلبات الخارجية؛ ESP32 لا تعرف تسجيل الدخول في Deployment Protection.
 
@@ -88,15 +88,17 @@ Remove-Item Env:ROMI_TEST_ISOLATED_DB, Env:ROMI_TEST_ALLOW_DOOR_COMMAND
 
 شغّل `test` واكتب `T`: يفتح، ينتظر، يقفل. `O` يفتح، `C` يقفل، `S` يطبع الحالة. لا ترسل ACK. ابدأ والservo منفصل عن ميكانيزم الباب. لو اتجاهه أو مداه غلط، غيّر فقط `DOOR_CLOSED_ANGLE` و`DOOR_OPEN_ANGLE` في `include/romi_config.h` ثم كرر `test`.
 
-## 4. وصّل البورد بموقعك
+## 4. الموقع جاهز؛ اختار شبكة المسابقة
 
 ```powershell
-.\firmware\esp32-romi\romi.ps1 configure
+.\firmware\esp32-romi\romi.ps1 wifi
 ```
 
-هيطلب بالترتيب: اسم Wi-Fi 2.4 GHz، كلمة السر، رابط Vercel بدون `/api`، توكن الجهاز، ومسار root CA PEM موثوق. **اضغط Enter عند سؤال CA ليكتشفها تلقائيًا عبر اتصال يتحقق منه Windows**. كلمة السر والتوكن لا يظهران أثناء الكتابة. الإعدادات في `include/romi_secrets.h` المسموح بتتبعه في الـrepo الخاص بطلب المالك.
+هذا يطلب اسم Wi-Fi 2.4 GHz وكلمة السر فقط، ويحافظ على رابط الموقع والتوكن والشهادة. ليس ضروريًا قبل أول flash: اختيار 5/8 سيطلب الواي فاي تلقائيًا.
 
-نفّذ configure بعد النشر وقبل المسابقة حتى تتجهز CA الصحيحة. لو الاكتشاف فشل، راجع الإنترنت/تاريخ Windows أو أدخل PEM من جهة الشهادة الرسمية. شهادة السيرفر المؤقتة ليست بديلًا عن root CA. يمكن وضع أكثر من root PEM في ملف واحد. إذا مضطر لعرض demo بدونها، اكتب `SKIP` عند سؤال CA؛ flash شبكة عادي يتوقف برسالة واضحة، والبديل الصريح تحت. لو غيّرت deployment أو شهادة الموقع لاحقًا، أعد configure وflash عند الحاجة.
+لو غيرت السيرفر أو التوكن، استخدم `romi.ps1 configure` بدلًا منه. الأمر الكامل يطلب بالترتيب: اسم Wi-Fi 2.4 GHz، كلمة السر، رابط Vercel بدون `/api`، توكن الجهاز، ومسار root CA PEM موثوق. **اضغط Enter عند سؤال CA ليكتشفها تلقائيًا عبر اتصال يتحقق منه Windows**. كلمة السر والتوكن لا يظهران أثناء الكتابة. الإعدادات في `include/romi_secrets.h` المتتبع في GitHub بطلب المالك.
+
+شهادة HTTPS للـdeployment الحالي جاهزة بالفعل. أعد configure فقط لو غيرت السيرفر أو الشهادة. لو الاكتشاف فشل، راجع الإنترنت/تاريخ Windows أو أدخل PEM من جهة الشهادة الرسمية. شهادة السيرفر المؤقتة ليست بديلًا عن root CA. يمكن وضع أكثر من root PEM في ملف واحد. إذا مضطر لعرض demo بدونها، اكتب `SKIP` عند سؤال CA؛ flash شبكة عادي يتوقف برسالة واضحة، والبديل الصريح تحت. لو غيّرت deployment أو شهادة الموقع لاحقًا، أعد configure وflash عند الحاجة.
 
 بدون حساس باب، ومع قطع الصوت استخدم **full** حسب STANDALONE.md. الأوامر التالية لوضع **الباب فقط مع صوت الموبايل**:
 
@@ -180,7 +182,7 @@ Remove-Item Env:ROMI_TEST_ISOLATED_DB, Env:ROMI_TEST_ALLOW_DOOR_COMMAND
 .\firmware\esp32-romi\romi.ps1 monitor
 ```
 
-لو عدة منافذ، أضف `-Port COM7` بعد التأكد من رقم البورد. `build -Mode safe` يفحص الترجمة فقط. `flash -Mode safe` بدون demo assumptions لكنه يحتاج تنفيذ حساس حقيقي لكي يقر نجاح فتح الباب. pins والزوايا والتوقيتات في `include/romi_config.h`؛ flags تكتبها الأداة في `romi_local.h` المسموح بتتبعه في الـrepo الخاص بطلب المالك، فاختيار mode من الأداة يغلب defaults.
+لو عدة منافذ، أضف `-Port COM7` بعد التأكد من رقم البورد. `build -Mode safe` يفحص الترجمة فقط. `flash -Mode safe` بدون demo assumptions لكنه يحتاج تنفيذ حساس حقيقي لكي يقر نجاح فتح الباب. pins والزوايا والتوقيتات في `include/romi_config.h`؛ flags تكتبها الأداة في `romi_local.h` المتتبع في GitHub بطلب المالك، فاختيار mode من الأداة يغلب defaults.
 
 ## 9. قطع الصوت في Plan A
 

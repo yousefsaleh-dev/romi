@@ -11,10 +11,11 @@ Run from the repository root:
 ```powershell
 .\firmware\esp32-romi\romi.ps1 prepare
 .\firmware\esp32-romi\romi.ps1 test -Mode audio-bench
-.\firmware\esp32-romi\romi.ps1 configure
 .\firmware\esp32-romi\romi.ps1 flash -Mode full
 .\firmware\esp32-romi\romi.ps1 monitor
 ```
+
+`romi_secrets.h` is preloaded with the deployed URL, verified device token and a trusted root CA. First network flash asks only for the competition Wi-Fi name/password. Menu 2 or `romi.ps1 wifi` changes Wi-Fi while preserving server settings.
 
 `prepare` installs/caches PlatformIO and builds the profiles. `configure` asks for Wi-Fi 2.4 GHz, password, ROMI HTTPS origin, device token and a root CA. Enter at the CA prompt discovers a root using Windows-validated TLS; a PEM file can also be supplied. Keep the prepared PC/cache available for flashing. Changing compiled settings needs another flash. Serial Monitor is 115200 baud; Ctrl+C exits. `doctor` and `ports` inspect tools/ports and reject Intel SOL as a USB board. Add `-Port COM7` after identifying the actual board.
 
@@ -61,4 +62,4 @@ Debug modes enable `O`/`C` manual positions, `T` timed bench cycle, `S` state, `
 
 ## Verification boundary
 
-Core/full builds and a real raw-protocol Gemini exchange are verified; actual I2S audio, device heap/TLS stability, wiring, servo movement and power remain unverified without hardware. ROMI is not yet deployed to Vercel, so external API and complete button-to-door tests remain pending. No backend routes or migrations were changed.
+Core/full builds and a real raw-protocol Gemini exchange are verified; actual I2S audio, device heap/TLS stability, wiring, servo movement and power remain unverified without hardware. The full external protocol test passed on romi-deci.vercel.app after the Gemini key update and SQL migration 0007. Physical button-to-door tests still require hardware. See docs/deployment-device-tests.md for network results.

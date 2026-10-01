@@ -85,3 +85,9 @@ node scripts/door-expiry-regression.mjs
 ### إعادة الاختبار بعد تطبيق migration 0007
 
 أكد صاحب المشروع تطبيق SQL، ثم أعيد الاختبار الخارجي `--door-only` على نفس رابط Vercel: **PASS، exit 0، ست مجموعات**. إعادة المحاولة احتفظت بالحجز `entry_pending`، وACK النجاح حوله إلى `checked_in`، ورفض السيرفر duplicate ACK وإعادة استخدام الكود. نجح أيضًا expiry الحقيقي وfailure ACK. نُظفت بيانات التشغيل التجريبية. هذا يزيل blocker إعادة محاولة الباب المذكور أعلاه؛ إصدار جلسة Gemini والصوت لم يُختبرا في هذا التشغيل لأن الجلسات كانت seeded fixtures.
+
+### النتيجة الأحدث: الاختبار الكامل بعد تحديث مفتاح Gemini
+
+أعيد `pnpm smoke:esp32:deployed` باستخدام المفتاح المحدث، على `https://romi-deci.vercel.app`: **PASS، exit 0، سبع مجموعات كاملة**. هذه المرة الجلسات صدرت من `/api/ai/session` الحقيقي، وليست seeded fixtures. نجح one-use ephemeral token، raw v1beta WebSocket/setupComplete، PCM16k input، و**16 PCM24k audio chunks، أكبر frame 46,392 bytes**، وusage/duplicate usage، وكل حراس الحجز والباب وexpiry/ACK/retry/consumed code. نُظفت بيانات التشغيل التجريبية. نتائج الفشل أعلاه سجل تاريخي للمشاكل التي أصلحت، وليست الحالة الحالية.
+
+إعدادات ESP32 مرفوعة في `include/romi_secrets.h`: رابط الموقع، device token المطابق للاختبار، وشهادة الجذر **GlobalSign Root CA** المكتشفة باتصال HTTPS تحقق منه Windows. الواي فاي لم يحدد بعد؛ أول flash يسأل اسمه وباسورده فقط. لا يوجد Gemini أو Supabase secret داخل firmware. نجاح البروتوكول من الكمبيوتر لا يثبت I2S أو الذاكرة أو الحركة على ESP32؛ هذه هي الاختبارات المتبقية بالقطع الفعلية.

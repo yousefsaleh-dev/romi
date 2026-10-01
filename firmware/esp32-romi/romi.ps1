@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('menu', 'prepare', 'configure', 'doctor', 'ports', 'build', 'flash', 'monitor', 'test')]
+    [ValidateSet('menu', 'prepare', 'configure', 'wifi', 'doctor', 'ports', 'build', 'flash', 'monitor', 'test')]
     [string]$Action = 'menu',
     [ValidateSet('safe', 'bench', 'demo', 'full', 'full-safe', 'audio-bench')]
     [string]$Mode = 'safe',
@@ -183,11 +183,34 @@ static constexpr char ROMI_ROOT_CA_BUNDLE[] = $(ConvertTo-CppLiteral $certificat
     if (!$certificate) { Write-Host 'CA is missing: safe network mode cannot run. Demo can use explicit -InsecureTls.' -ForegroundColor Yellow }
 }
 
+function Configure-Wifi {
+    $secretsPath = Join-Path $script:FirmwareDirectory 'include/romi_secrets.h'
+    if (!(Test-Path -LiteralPath $secretsPath)) { throw 'Server settings are missing. Run configure first.' }
+    $header = [IO.File]::ReadAllText($secretsPath)
+    $ssid = Read-Host 'WiFi SSID (2.4 GHz)'
+    $wifiPassword = Read-PrivateValue 'WiFi password (blank for an open network)'
+    if (!$ssid) { throw 'WiFi name is required. Nothing has been saved.' }
+    foreach ($setting in @(@('ROMI_WIFI_SSID', $ssid), @('ROMI_WIFI_PASSWORD', $wifiPassword))) {
+        $pattern = 'static constexpr char ' + $setting[0] + '\[\] = "(?:\\.|[^"\\])*";'
+        if (![regex]::IsMatch($header, $pattern)) { throw 'WiFi settings are malformed. Nothing has been saved.' }
+        $replacement = 'static constexpr char ' + $setting[0] + '[] = ' + (ConvertTo-CppLiteral $setting[1]) + ';'
+        # A match evaluator preserves literal $ characters in WiFi credentials.
+        $header = [regex]::Replace($header, $pattern, [Text.RegularExpressions.MatchEvaluator]{ param($match) $replacement })
+    }
+    [IO.File]::WriteAllText($secretsPath, $header, [Text.UTF8Encoding]::new($false))
+    Write-Host 'WiFi saved. Deployment URL, device token and trusted CA were kept.' -ForegroundColor Green
+}
+
 function Assert-DeviceSettings {
     if ($Mode -in @('bench','audio-bench')) { return }
     $secretsPath = Join-Path $script:FirmwareDirectory 'include/romi_secrets.h'
     if (!(Test-Path -LiteralPath $secretsPath)) { throw 'Run configure first, or use -Mode bench for offline hardware tests.' }
     $secretsHeader = [IO.File]::ReadAllText($secretsPath)
+    if ($secretsHeader -match 'REPLACE_WITH_WIFI_NAME|REPLACE_WITH_WIFI_PASSWORD') {
+        Write-Host 'Server settings are ready. Enter only the competition WiFi details.'
+        Configure-Wifi
+        $secretsHeader = [IO.File]::ReadAllText($secretsPath)
+    }
     if ($secretsHeader -match 'REPLACE_WITH|YOUR_DEPLOYED_HOST') { throw 'Device settings still contain placeholders. Run configure.' }
     if (!$InsecureTls -and $secretsHeader -notmatch '-----BEGIN CERTIFICATE-----') {
         throw 'Trusted CA missing. Configure a PEM certificate, or explicitly use -Mode demo -InsecureTls for the demo.'
@@ -212,6 +235,7 @@ function Show-Doctor {
     } else {
         $secretsHeader = [IO.File]::ReadAllText($secretsPath)
         Write-Host "Device settings: present | CA PEM present: $($secretsHeader -match '-----BEGIN CERTIFICATE-----')"
+        if ($secretsHeader -match 'REPLACE_WITH_WIFI_NAME') { Write-Host 'WiFi: enter the competition network at first flash; server settings are ready.' }
     }
     Write-Host 'Pins: servo=23 button=33 red=25 green=26. Change only include/romi_config.h if wiring differs.'
     Write-Host 'No hardware test is claimed by this diagnostic.'
@@ -220,7 +244,7 @@ function Show-Doctor {
 function Show-Menu {
     Write-Host 'ROMI ESP32 launcher'
     Write-Host '1 prepare  : install/cache tools and compile modes before the event'
-    Write-Host '2 configure: enter WiFi, URL and device token privately'
+    Write-Host '2 WiFi     : change WiFi only; server settings are already included'
     Write-Host '3 doctor   : inspect tools, settings and USB ports'
     Write-Host '4 test     : flash offline bench mode and open logs (O/C/T/S)'
     Write-Host '5 flash    : flash standalone voice + door (mic/amplifier required)'
@@ -230,7 +254,7 @@ function Show-Menu {
     $choice = Read-Host 'Choose 1-8'
     switch ($choice) {
         '1' { $script:Action = 'prepare' }
-        '2' { $script:Action = 'configure' }
+        '2' { $script:Action = 'wifi' }
         '3' { $script:Action = 'doctor' }
         '4' { $script:Action = 'test' }
         '5' { $script:Action = 'flash'; $script:Mode = 'full' }
@@ -244,6 +268,7 @@ function Show-Menu {
 try {
     if ($Action -eq 'menu') { Show-Menu }
     if ($Action -eq 'configure') { Configure-Device; return }
+    if ($Action -eq 'wifi') { Configure-Wifi; return }
     Initialize-PlatformIO -InstallIfMissing:($Action -eq 'prepare')
     switch ($Action) {
         'prepare' {
@@ -253,10 +278,10 @@ try {
             Build-Core 'full' $false
             Build-Core 'safe' $false
             New-Item -ItemType Directory -Path $script:ToolsDirectory -Force | Out-Null
-            $report = 'Core and standalone audio builds passed. Hardware and deployed ROMI API remain unverified.'
+            $report = 'Core and standalone audio builds passed. Hardware remains unverified; deployed API results are in docs/deployment-device-tests.md.'
             [IO.File]::WriteAllText((Join-Path $script:ToolsDirectory 'prepare-report.txt'), $report)
             Write-Host 'Prepared. Keep this repo folder AND this Windows user profile on the competition laptop.' -ForegroundColor Green
-            Write-Host 'A new clone alone does not include private device settings or cached tools.'
+            Write-Host 'Device server settings are included in Git. A new clone still needs tools installed/cached and WiFi entered.'
         }
         'doctor' { Show-Doctor }
         'ports' { Get-SerialPorts | Select-Object port, description, hwid | Format-Table -AutoSize }
