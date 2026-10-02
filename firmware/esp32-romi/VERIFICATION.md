@@ -1,5 +1,7 @@
 # Verification record — 2026-10-01
 
+**Latest status note — 2026-10-02:** after the successful deployed runs below, the published Google key returned HTTP 401 / ACCESS_TOKEN_TYPE_UNSUPPORTED. Voice availability requires a replacement key on Vercel and a new verification; the passing runs remain historical evidence. Current firmware settings include the deployed origin, device token and validated root CA, with Wi-Fi placeholders. Server `.env.local` is now ignored and untracked. No physical board has been flashed or tested. See the last section of [deployment results](../../docs/deployment-device-tests.md) and the [Arabic handoff](../../docs/hackathon-handoff-prompt.md).
+
 ## Native and core firmware builds
 
 Target: classic ESP32 DevKit V1 / ESP-WROOM-32 (`esp32dev`). PlatformIO 6.2.0, espressif32 6.12.0, Arduino ESP32 2.0.17, ArduinoJson 7.4.3, ESP32Servo 3.2.1; full adds WebSockets 2.7.3. Core explicitly excludes WebSockets.
@@ -32,7 +34,7 @@ The probe accesses Gemini only: no Supabase, patient data or door. It verifies a
 - Next.js production build passed for the existing kiosk implementation before native firmware was added. Native work changed package scripts and firmware/docs, not web/backend routes.
 - Launcher diagnostics run in PowerShell 7 and Windows PowerShell 5.1. Only Intel SOL COM3 was present; it is correctly excluded from USB board selection.
 - Trusted root discovery previously verified against public vercel.com in both PowerShell versions. This tests the helper, not ROMI's eventual deployment.
-- No real device settings header is present. No Gemini/Supabase server secret is embedded in firmware. The owner requested tracking environment/archive/device settings, made the repository public and approved the Google-key exception. The push succeeded on 2026-10-02. Caches and local mode flags stay ignored.
+- The earlier build matrix used synthetic settings; the later preloaded-settings builds below use the real deployment header. No Gemini/Supabase server secret is embedded in firmware. Current server env files, caches and local mode flags stay ignored; previously published keys remain in history.
 
 ## Implemented versus still unfinished
 

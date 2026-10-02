@@ -5,6 +5,7 @@ ROMI is a single-hospital MVP for voice-guided appointment booking/check-in and 
 ## Project map
 
 - [ROMI.pdf](ROMI.pdf) — latest 24-slide presentation, including the technology stack and AI tools/API slides.
+- [Arabic handoff prompt](docs/hackathon-handoff-prompt.md) — copy into Codex on the event PC to continue with the project context, both hardware scenarios and current verification limits.
 - `src/` — Next.js admin dashboard and server API routes.
 - `supabase/migrations/` — schema, access policies, and device command queue.
 - `firmware/esp32-romi/` — ESP32 firmware workspace.
@@ -42,6 +43,8 @@ For a deployed server, see [ESP32 protocol tests](docs/deployment-device-tests.m
 
 Start with [أول مرة هاردوير: القائمة، USB، الواي فاي، وبديل الموبايل](docs/hardware-first-time.md). It includes the exact terminal menu and both equipment scenarios.
 
-Use `/dashboard/kiosk` after admin login and enter the same device token provisioned on the ESP32. It creates device-authenticated AI sessions through the existing routes and waits for the board's physical command ACK. The token is held in page memory only. `/dashboard/simulation` remains a simulated door flow and cannot operate the physical queue. This is Plan B on a phone if audio parts are absent; start/stop using the page controls. Plan A uses native INMP441/MAX98357A audio on the ESP32: GPIO33 starts/cancels sessions directly. See [standalone wiring and commands](firmware/esp32-romi/STANDALONE.md).
+The phone fallback page is intentionally absent from the sidebar for presentations. Open [the kiosk directly](https://romi-deci.vercel.app/dashboard/kiosk) after admin login and enter the same device token provisioned on the ESP32. It creates device-authenticated AI sessions through the existing routes and waits for the board's physical command ACK. The token is held in page memory only. `/dashboard/simulation` remains a simulated door flow and cannot operate the physical queue. This is Plan B on a phone if audio parts are absent; start/stop using the page controls. Plan A uses native INMP441/MAX98357A audio on the ESP32: GPIO33 starts/cancels sessions directly. See [standalone wiring and commands](firmware/esp32-romi/STANDALONE.md).
+
+The board initiates every ROMI HTTP request. A voice tool request creates a database command; the board receives it in the response to its next `GET /api/device/commands` poll, then posts the execution ACK. The server does not initiate a connection to the board. Phone and board each need Internet access and matching deployment/device settings; no inbound ESP32 port or USB link between them is required.
 
 On Windows, run `./firmware/esp32-romi/romi.ps1 prepare` on the preparation PC before the event, then follow [the independent field guide](firmware/esp32-romi/HACKATHON.md). `pnpm test:device-door` verifies browser status handling rejects simulated/failed/malformed confirmations. These tests and successful builds do not prove hardware motion or a deployed API exchange.

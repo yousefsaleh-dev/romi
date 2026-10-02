@@ -3,13 +3,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, AudioLines, CalendarDays, DoorOpen, LayoutDashboard, LogOut } from "lucide-react";
+import { Activity, AudioLines, CalendarDays, LayoutDashboard, LogOut } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 const navigation = [
   { href: "/dashboard", label: "نظرة عامة", icon: LayoutDashboard },
   { href: "/dashboard/simulation", label: "محاكاة صوتية", icon: AudioLines },
-  { href: "/dashboard/kiosk", label: "استقبال مع ESP32", icon: DoorOpen },
   { href: "/dashboard/bookings", label: "الحجوزات", icon: CalendarDays },
   { href: "/dashboard/activity", label: "سجل النشاط", icon: Activity },
 ];
